@@ -146,13 +146,7 @@ func newCertificateSecret(suffix string, caCert *x509.Certificate, caKey *rsa.Pr
 
 // reconcileArgoSecret will ensure that the Argo CD Secret is present.
 func (r *ReconcileArgoCD) reconcileArgoSecret(cr *argoproj.ArgoCD) error {
-	clusterSecret := argoutil.NewSecretWithSuffix(cr, "cluster")
 	secret := argoutil.NewSecretWithName(cr, common.ArgoCDSecretName)
-
-	if !argoutil.IsObjectFound(r.Client, cr.Namespace, clusterSecret.Name, clusterSecret) {
-		log.Info(fmt.Sprintf("cluster secret [%s] not found, waiting to reconcile argo secret [%s]", clusterSecret.Name, secret.Name))
-		return nil
-	}
 
 	tlsSecret := argoutil.NewSecretWithSuffix(cr, "tls")
 	if !argoutil.IsObjectFound(r.Client, cr.Namespace, tlsSecret.Name, tlsSecret) {
@@ -161,13 +155,7 @@ func (r *ReconcileArgoCD) reconcileArgoSecret(cr *argoproj.ArgoCD) error {
 	}
 
 	if argoutil.IsObjectFound(r.Client, cr.Namespace, secret.Name, secret) {
-		return r.reconcileExistingArgoSecret(cr, secret, clusterSecret, tlsSecret)
-	}
-
-	// Secret not found, create it...
-	hashedPassword, err := argopass.HashPassword(string(clusterSecret.Data[common.ArgoCDKeyAdminPassword]))
-	if err != nil {
-		return err
+		return r.reconcileExistingArgoSecret(cr, secret, tlsSecret)
 	}
 
 	sessionKey, err := generateArgoServerSessionKey()
@@ -176,11 +164,9 @@ func (r *ReconcileArgoCD) reconcileArgoSecret(cr *argoproj.ArgoCD) error {
 	}
 
 	secret.Data = map[string][]byte{
-		common.ArgoCDKeyAdminPassword:      []byte(hashedPassword),
-		common.ArgoCDKeyAdminPasswordMTime: nowBytes(),
-		common.ArgoCDKeyServerSecretKey:    sessionKey,
-		common.ArgoCDKeyTLSCert:            tlsSecret.Data[common.ArgoCDKeyTLSCert],
-		common.ArgoCDKeyTLSPrivateKey:      tlsSecret.Data[common.ArgoCDKeyTLSPrivateKey],
+		common.ArgoCDKeyServerSecretKey: sessionKey,
+		common.ArgoCDKeyTLSCert:         tlsSecret.Data[common.ArgoCDKeyTLSCert],
+		common.ArgoCDKeyTLSPrivateKey:   tlsSecret.Data[common.ArgoCDKeyTLSPrivateKey],
 	}
 
 	if cr.Spec.SSO != nil && cr.Spec.SSO.Provider.ToLower() == argoproj.SSOProviderTypeDex {
@@ -189,28 +175,6 @@ func (r *ReconcileArgoCD) reconcileArgoSecret(cr *argoproj.ArgoCD) error {
 			return nil
 		}
 		secret.Data[common.ArgoCDDexSecretKey] = []byte(*dexOIDCClientSecret)
-	}
-
-	if err := controllerutil.SetControllerReference(cr, secret, r.Scheme); err != nil {
-		return err
-	}
-	return r.Client.Create(context.TODO(), secret)
-}
-
-// reconcileClusterMainSecret will ensure that the main Secret is present for the Argo CD cluster.
-func (r *ReconcileArgoCD) reconcileClusterMainSecret(cr *argoproj.ArgoCD) error {
-	secret := argoutil.NewSecretWithSuffix(cr, "cluster")
-	if argoutil.IsObjectFound(r.Client, cr.Namespace, secret.Name, secret) {
-		return nil // Secret found, do nothing
-	}
-
-	adminPassword, err := generateArgoAdminPassword()
-	if err != nil {
-		return err
-	}
-
-	secret.Data = map[string][]byte{
-		common.ArgoCDKeyAdminPassword: adminPassword,
 	}
 
 	if err := controllerutil.SetControllerReference(cr, secret, r.Scheme); err != nil {
@@ -274,9 +238,6 @@ func (r *ReconcileArgoCD) reconcileClusterCASecret(cr *argoproj.ArgoCD) error {
 
 // reconcileClusterSecrets will reconcile all Secret resources for the ArgoCD cluster.
 func (r *ReconcileArgoCD) reconcileClusterSecrets(cr *argoproj.ArgoCD) error {
-	if err := r.reconcileClusterMainSecret(cr); err != nil {
-		return err
-	}
 
 	if err := r.reconcileClusterCASecret(cr); err != nil {
 		return err
@@ -298,7 +259,7 @@ func (r *ReconcileArgoCD) reconcileClusterSecrets(cr *argoproj.ArgoCD) error {
 }
 
 // reconcileExistingArgoSecret will ensure that the Argo CD Secret is up to date.
-func (r *ReconcileArgoCD) reconcileExistingArgoSecret(cr *argoproj.ArgoCD, secret *corev1.Secret, clusterSecret *corev1.Secret, tlsSecret *corev1.Secret) error {
+func (r *ReconcileArgoCD) reconcileExistingArgoSecret(cr *argoproj.ArgoCD, secret *corev1.Secret, tlsSecret *corev1.Secret) error {
 	changed := false
 
 	if secret.Data == nil {
@@ -311,20 +272,6 @@ func (r *ReconcileArgoCD) reconcileExistingArgoSecret(cr *argoproj.ArgoCD, secre
 			return err
 		}
 		secret.Data[common.ArgoCDKeyServerSecretKey] = sessionKey
-	}
-
-	if hasArgoAdminPasswordChanged(secret, clusterSecret) {
-		pwBytes, ok := clusterSecret.Data[common.ArgoCDKeyAdminPassword]
-		if ok {
-			hashedPassword, err := argopass.HashPassword(strings.TrimRight(string(pwBytes), "\n"))
-			if err != nil {
-				return err
-			}
-
-			secret.Data[common.ArgoCDKeyAdminPassword] = []byte(hashedPassword)
-			secret.Data[common.ArgoCDKeyAdminPasswordMTime] = nowBytes()
-			changed = true
-		}
 	}
 
 	if hasArgoTLSChanged(secret, tlsSecret) {
