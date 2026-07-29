@@ -55,7 +55,7 @@ func (r *ReconcileArgoCD) reconcileSSO(cr *argoproj.ArgoCD, argocdStatus *argopr
 			// https://github.com/argoproj-labs/argocd-operator/pull/615 ==> conflict
 			errMsg = "must supply valid dex configuration when requested SSO provider is dex"
 			isError = true
-		} else if cr.Spec.SSO.Dex != nil && cr.Spec.SSO.Dex.OpenShiftOAuth && !IsOpenShiftCluster() {
+		} else if cr.Spec.SSO.Dex.OpenShiftOAuth && !IsOpenShiftCluster() {
 			errMsg = "OpenShift OAuth is not supported on non-OpenShift clusters"
 			isError = true
 		} else if cr.Spec.SSO.Keycloak != nil {
