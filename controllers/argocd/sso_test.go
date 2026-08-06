@@ -130,7 +130,7 @@ func TestReconcile_illegalSSOConfiguration(t *testing.T) {
 			wantSSOConfigLegalStatus: "Failed",
 		},
 		{
-			name: "openshiftOAuth enabled on non-OpenShift cluster",
+			name: "openshiftOAuth enabled on non-OpenShift cluster - warning only",
 			argoCD: makeTestArgoCD(func(ac *argoproj.ArgoCD) {
 				ac.Spec.SSO = &argoproj.ArgoCDSSOSpec{
 					Provider: argoproj.SSOProviderTypeDex,
@@ -139,9 +139,8 @@ func TestReconcile_illegalSSOConfiguration(t *testing.T) {
 					},
 				}
 			}),
-			wantErr:                  true,
-			Err:                      errors.New("illegal SSO configuration: OpenShift OAuth is not supported on non-OpenShift clusters"),
-			wantSSOConfigLegalStatus: "Failed",
+			wantErr:                  false,
+			wantSSOConfigLegalStatus: "",
 		},
 		{
 			name: "openshiftOAuth enabled on OpenShift cluster - no validation error",

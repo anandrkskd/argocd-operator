@@ -45,7 +45,7 @@ var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
 			ctx = context.Background()
 		})
 
-		It("should report an error condition when OpenShiftOAuth is enabled on a non-OpenShift cluster", func() {
+		It("should not fail reconciliation when OpenShiftOAuth is enabled on a non-OpenShift cluster", func() {
 			if fixture.RunningOnOpenShift() {
 				Skip("This test validates behavior on non-OpenShift clusters only")
 			}
@@ -68,14 +68,8 @@ var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
 			}
 			Expect(k8sClient.Create(ctx, argoCD)).To(Succeed())
 
-			By("verifying the ArgoCD instance reports Failed phase and SSO status")
-			Eventually(argoCD, "2m", "5s").Should(
-				And(argocdFixture.HavePhase("Failed"),
-					argocdFixture.HaveSSOStatus("Failed"),
-				))
-
-			By("verifying the status condition reports unsupported OpenShiftOAuth on non-OpenShift cluster")
-			Eventually(argoCD, "2m", "5s").Should(argocdFixture.HaveCondition(metav1.Condition{
+			By("verifying the ArgoCD instance does not fail due to illegal SSO configuration for OpenShiftOAuth")
+			Consistently(argoCD, "30s", "5s").ShouldNot(argocdFixture.HaveCondition(metav1.Condition{
 				Message: "illegal SSO configuration: OpenShift OAuth is not supported on non-OpenShift clusters",
 				Reason:  "ErrorOccurred",
 				Status:  "False",
