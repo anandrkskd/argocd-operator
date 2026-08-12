@@ -164,6 +164,36 @@ func TestReconcileImageUpdaterServiceAccount_WithImagePullSecrets(t *testing.T) 
 	assert.Equal(t, []v1.LocalObjectReference{{Name: "imgupd-pull-secret"}}, testSa.ImagePullSecrets)
 }
 
+func TestReconcileImageUpdaterServiceAccount_UpdateExistingImagePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD(func(a *argoproj.ArgoCD) {
+		a.Spec.ImageUpdater.Enabled = true
+	})
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	// Create SA without imagePullSecrets
+	_, err := r.reconcileImageUpdaterServiceAccount(a)
+	assert.NoError(t, err)
+
+	// Set env var and reconcile again — should update existing SA
+	t.Setenv("IMAGE_PULL_SECRETS", "new-imgupd-secret")
+	_, err = r.reconcileImageUpdaterServiceAccount(a)
+	assert.NoError(t, err)
+
+	testSa := &v1.ServiceAccount{}
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{
+		Name:      generateResourceName(common.ArgoCDImageUpdaterControllerComponent, a),
+		Namespace: a.Namespace,
+	}, testSa))
+	assert.Equal(t, []v1.LocalObjectReference{{Name: "new-imgupd-secret"}}, testSa.ImagePullSecrets)
+}
+
 func TestReconcileImageUpdater_CreateRoleBinding(t *testing.T) {
 	logf.SetLogger(ZapLogger(true))
 	a := makeTestArgoCD(func(a *argoproj.ArgoCD) {

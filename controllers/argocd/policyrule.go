@@ -448,7 +448,7 @@ func getPolicyRuleList(client client.Client, cr *argoproj.ArgoCD) []struct {
 }
 
 func policyRuleForRepoServer() []v1.PolicyRule {
-	return nil
+	return []v1.PolicyRule{}
 }
 
 func getPolicyRuleClusterRoleList() []struct {

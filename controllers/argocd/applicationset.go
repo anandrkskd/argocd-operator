@@ -523,6 +523,12 @@ func (r *ReconcileArgoCD) reconcileApplicationSetServiceAccount(cr *argoproj.Arg
 		if err != nil {
 			return sa, err
 		}
+	} else {
+		desired := argoutil.GetImagePullSecrets()
+		if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+			sa.ImagePullSecrets = desired
+			return sa, r.Update(context.TODO(), sa)
+		}
 	}
 
 	return sa, nil

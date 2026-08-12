@@ -755,6 +755,37 @@ func TestReconcileApplicationSetServiceAccount_WithImagePullSecrets(t *testing.T
 	assert.Equal(t, []v1.LocalObjectReference{{Name: "appset-pull-secret"}}, testSa.ImagePullSecrets)
 }
 
+func TestReconcileApplicationSetServiceAccount_UpdateExistingImagePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+	a.Spec.ApplicationSet = &argoproj.ArgoCDApplicationSet{
+		Enabled: new(true),
+	}
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	// Create SA without imagePullSecrets
+	_, err := r.reconcileApplicationSetServiceAccount(a)
+	assert.NoError(t, err)
+
+	// Set env var and reconcile again — should update existing SA
+	t.Setenv("IMAGE_PULL_SECRETS", "new-pull-secret")
+	_, err = r.reconcileApplicationSetServiceAccount(a)
+	assert.NoError(t, err)
+
+	testSa := &v1.ServiceAccount{}
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{
+		Name:      "argocd-applicationset-controller",
+		Namespace: a.Namespace,
+	}, testSa))
+	assert.Equal(t, []v1.LocalObjectReference{{Name: "new-pull-secret"}}, testSa.ImagePullSecrets)
+}
+
 // Test creation/cleanup of applicationset-controller clusterrole & clusterrolebinding
 func TestReconcileApplicationSet_ClusterRBACCreationAndCleanup(t *testing.T) {
 	logf.SetLogger(ZapLogger(true))

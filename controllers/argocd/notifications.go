@@ -242,6 +242,12 @@ func (r *ReconcileArgoCD) reconcileNotificationsServiceAccount(cr *argoproj.Argo
 		return nil, r.Delete(context.TODO(), sa)
 	}
 
+	desired := argoutil.GetImagePullSecrets()
+	if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+		sa.ImagePullSecrets = desired
+		return sa, r.Update(context.TODO(), sa)
+	}
+
 	return sa, nil
 }
 
