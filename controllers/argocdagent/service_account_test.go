@@ -283,6 +283,57 @@ func TestReconcilePrincipalServiceAccount_ServiceAccountDoesNotExist_AgentNotSet
 	assert.True(t, errors.IsNotFound(err))
 }
 
+func TestReconcilePrincipalServiceAccount_WithImagePullSecrets(t *testing.T) {
+	cr := makeTestArgoCD(withPrincipalEnabled(true))
+
+	resObjs := []client.Object{cr}
+	sch := makeTestReconcilerScheme()
+	cl := makeTestReconcilerClient(sch, resObjs)
+
+	t.Setenv("IMAGE_PULL_SECRETS", "principal-pull-secret")
+
+	sa, err := ReconcilePrincipalServiceAccount(cl, testCompName, cr, sch)
+	assert.NoError(t, err)
+	assert.NotNil(t, sa)
+
+	retrievedSA := &corev1.ServiceAccount{}
+	err = cl.Get(context.TODO(), types.NamespacedName{
+		Name:      generateAgentResourceName(cr.Name, testCompName),
+		Namespace: cr.Namespace,
+	}, retrievedSA)
+	assert.NoError(t, err)
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "principal-pull-secret"}}, retrievedSA.ImagePullSecrets)
+}
+
+func TestReconcilePrincipalServiceAccount_UpdatePullSecrets(t *testing.T) {
+	cr := makeTestArgoCD(withPrincipalEnabled(true))
+
+	existingSA := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      generateAgentResourceName(cr.Name, testCompName),
+			Namespace: cr.Namespace,
+			Labels:    buildLabelsForAgentPrincipal(cr.Name, testCompName),
+		},
+	}
+
+	resObjs := []client.Object{cr, existingSA}
+	sch := makeTestReconcilerScheme()
+	cl := makeTestReconcilerClient(sch, resObjs)
+
+	t.Setenv("IMAGE_PULL_SECRETS", "new-pull-secret")
+
+	_, err := ReconcilePrincipalServiceAccount(cl, testCompName, cr, sch)
+	assert.NoError(t, err)
+
+	retrievedSA := &corev1.ServiceAccount{}
+	err = cl.Get(context.TODO(), types.NamespacedName{
+		Name:      generateAgentResourceName(cr.Name, testCompName),
+		Namespace: cr.Namespace,
+	}, retrievedSA)
+	assert.NoError(t, err)
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "new-pull-secret"}}, retrievedSA.ImagePullSecrets)
+}
+
 func TestReconcilePrincipalServiceAccount_ServiceAccountExists_AgentNotSet(t *testing.T) {
 	// Test case: ServiceAccount exists but agent is not set (nil)
 	// Expected behavior: Should delete the ServiceAccount

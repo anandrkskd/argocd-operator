@@ -205,6 +205,57 @@ func TestReconcileAgentServiceAccount_ServiceAccountExists_AgentEnabled(t *testi
 	assert.Equal(t, buildLabelsForAgent(cr.Name, testAgentCompName), retrievedSA.Labels)
 }
 
+func TestReconcileAgentServiceAccount_WithImagePullSecrets(t *testing.T) {
+	cr := makeTestArgoCD(withAgentEnabled(true))
+
+	resObjs := []client.Object{cr}
+	sch := makeTestReconcilerScheme()
+	cl := makeTestReconcilerClient(sch, resObjs)
+
+	t.Setenv("IMAGE_PULL_SECRETS", "agent-pull-secret")
+
+	sa, err := ReconcileAgentServiceAccount(cl, testAgentCompName, cr, sch)
+	assert.NoError(t, err)
+	assert.NotNil(t, sa)
+
+	retrievedSA := &corev1.ServiceAccount{}
+	err = cl.Get(context.TODO(), types.NamespacedName{
+		Name:      generateAgentResourceName(cr.Name, testAgentCompName),
+		Namespace: cr.Namespace,
+	}, retrievedSA)
+	assert.NoError(t, err)
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "agent-pull-secret"}}, retrievedSA.ImagePullSecrets)
+}
+
+func TestReconcileAgentServiceAccount_UpdatePullSecrets(t *testing.T) {
+	cr := makeTestArgoCD(withAgentEnabled(true))
+
+	existingSA := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      generateAgentResourceName(cr.Name, testAgentCompName),
+			Namespace: cr.Namespace,
+			Labels:    buildLabelsForAgent(cr.Name, testAgentCompName),
+		},
+	}
+
+	resObjs := []client.Object{cr, existingSA}
+	sch := makeTestReconcilerScheme()
+	cl := makeTestReconcilerClient(sch, resObjs)
+
+	t.Setenv("IMAGE_PULL_SECRETS", "updated-agent-secret")
+
+	_, err := ReconcileAgentServiceAccount(cl, testAgentCompName, cr, sch)
+	assert.NoError(t, err)
+
+	retrievedSA := &corev1.ServiceAccount{}
+	err = cl.Get(context.TODO(), types.NamespacedName{
+		Name:      generateAgentResourceName(cr.Name, testAgentCompName),
+		Namespace: cr.Namespace,
+	}, retrievedSA)
+	assert.NoError(t, err)
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "updated-agent-secret"}}, retrievedSA.ImagePullSecrets)
+}
+
 func TestReconcileAgentServiceAccount_ServiceAccountExists_AgentNotSet(t *testing.T) {
 	// Test case: ServiceAccount exists but agent is not set (nil)
 	// Expected behavior: Should delete the ServiceAccount

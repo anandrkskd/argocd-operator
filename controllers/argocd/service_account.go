@@ -16,6 +16,7 @@ package argocd
 
 import (
 	"context"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -36,6 +37,7 @@ func newServiceAccount(cr *argoproj.ArgoCD) *corev1.ServiceAccount {
 			Namespace: cr.Namespace,
 			Labels:    argoutil.LabelsForCluster(cr),
 		},
+		ImagePullSecrets: argoutil.GetImagePullSecrets(),
 	}
 }
 
@@ -129,6 +131,12 @@ func (r *ReconcileArgoCD) reconcileServiceAccount(name string, cr *argoproj.Argo
 			// Delete any existing Service Account as no longer needed
 			argoutil.LogResourceDeletion(log, sa, "component is being uninstalled")
 			return sa, r.Delete(context.TODO(), sa)
+		}
+
+		desired := argoutil.GetImagePullSecrets()
+		if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+			sa.ImagePullSecrets = desired
+			return sa, r.Update(context.TODO(), sa)
 		}
 		return sa, nil
 	}

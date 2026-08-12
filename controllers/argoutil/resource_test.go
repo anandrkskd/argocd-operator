@@ -448,3 +448,68 @@ func TestAnnotationsForCluster_DoesNotPropagateCRAnnotations(t *testing.T) {
 
 	assert.Len(t, annotations, 2, "only the two default annotations should be present")
 }
+
+func TestGetImagePullSecrets(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		setEnv   bool
+		expected []corev1.LocalObjectReference
+	}{
+		{
+			name:     "unset env var returns nil",
+			setEnv:   false,
+			expected: nil,
+		},
+		{
+			name:     "empty env var returns nil",
+			envValue: "",
+			setEnv:   true,
+			expected: nil,
+		},
+		{
+			name:     "single secret",
+			envValue: "my-secret",
+			setEnv:   true,
+			expected: []corev1.LocalObjectReference{{Name: "my-secret"}},
+		},
+		{
+			name:     "multiple secrets",
+			envValue: "secret1,secret2,secret3",
+			setEnv:   true,
+			expected: []corev1.LocalObjectReference{
+				{Name: "secret1"},
+				{Name: "secret2"},
+				{Name: "secret3"},
+			},
+		},
+		{
+			name:     "whitespace handling",
+			envValue: " secret1 , secret2 ",
+			setEnv:   true,
+			expected: []corev1.LocalObjectReference{
+				{Name: "secret1"},
+				{Name: "secret2"},
+			},
+		},
+		{
+			name:     "trailing comma",
+			envValue: "secret1,",
+			setEnv:   true,
+			expected: []corev1.LocalObjectReference{{Name: "secret1"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnv {
+				t.Setenv(common.ArgoCDImagePullSecretsEnvName, tt.envValue)
+			} else {
+				os.Unsetenv(common.ArgoCDImagePullSecretsEnvName)
+			}
+
+			result := GetImagePullSecrets()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

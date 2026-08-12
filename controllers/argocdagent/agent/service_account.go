@@ -17,6 +17,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -57,7 +58,14 @@ func ReconcileAgentServiceAccount(client client.Client, compName string, cr *arg
 			}
 			return sa, nil
 		}
-		// Service account exists and agent is enabled, nothing to do
+		// Service account exists and agent is enabled, check imagePullSecrets
+		desired := argoutil.GetImagePullSecrets()
+		if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+			sa.ImagePullSecrets = desired
+			if err := client.Update(context.TODO(), sa); err != nil {
+				return nil, fmt.Errorf("failed to update agent service account %s imagePullSecrets: %v", sa.Name, err)
+			}
+		}
 		return sa, nil
 	}
 
@@ -85,6 +93,7 @@ func buildServiceAccount(compName string, cr *argoproj.ArgoCD) *corev1.ServiceAc
 			Namespace: cr.Namespace,
 			Labels:    buildLabelsForAgent(cr.Name, compName),
 		},
+		ImagePullSecrets: argoutil.GetImagePullSecrets(),
 	}
 }
 

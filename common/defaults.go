@@ -51,6 +51,9 @@ const (
 	// ArgoCDRedisHAComponent is the name of the Redis HA control plane component
 	ArgoCDRedisHAComponent = "argocd-redis-ha"
 
+	// ArgoCDRepoServerComponent is the name of the Repo server control plane component
+	ArgoCDRepoServerComponent = "argocd-repo-server"
+
 	// ArgoCDDexServerComponent is the name of the Dex server control plane component
 	ArgoCDDexServerComponent = "argocd-dex-server"
 

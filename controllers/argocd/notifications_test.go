@@ -101,6 +101,33 @@ func TestReconcileNotifications_CreateServiceAccount(t *testing.T) {
 
 }
 
+func TestReconcileNotificationsServiceAccount_WithImagePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD(func(a *argoproj.ArgoCD) {
+		a.Spec.Notifications.Enabled = true
+	})
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	t.Setenv("IMAGE_PULL_SECRETS", "notif-pull-secret")
+
+	sa, err := r.reconcileNotificationsServiceAccount(a)
+	assert.NoError(t, err)
+	assert.NotNil(t, sa)
+
+	testSa := &v1.ServiceAccount{}
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{
+		Name:      generateResourceName(common.ArgoCDNotificationsControllerComponent, a),
+		Namespace: a.Namespace,
+	}, testSa))
+	assert.Equal(t, []v1.LocalObjectReference{{Name: "notif-pull-secret"}}, testSa.ImagePullSecrets)
+}
+
 func TestReconcileNotifications_CreateRoleBinding(t *testing.T) {
 	logf.SetLogger(ZapLogger(true))
 	a := makeTestArgoCD(func(a *argoproj.ArgoCD) {

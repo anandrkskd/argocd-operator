@@ -30,6 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	argoproj "github.com/argoproj-labs/argocd-operator/api/v1beta1"
+	"github.com/argoproj-labs/argocd-operator/common"
 )
 
 func TestReconcileArgoCD_reconcileServiceAccountPermissions(t *testing.T) {
@@ -150,6 +151,111 @@ func TestReconcileArgoCD_reconcileServiceAccountClusterPermissions(t *testing.T)
 	//TODO: https://github.com/stretchr/testify/pull/1022 introduced ErrorContains, but is not yet available in a tagged release. Revert to ErrorContains once this becomes available
 	assert.Error(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedClusterRoleName}, reconcileClusterRole))
 	assert.Contains(t, r.Client.Get(context.TODO(), types.NamespacedName{Name: expectedClusterRoleName}, reconcileClusterRole).Error(), "not found")
+}
+
+func TestReconcileServiceAccount_WithImagePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+
+	t.Setenv("IMAGE_PULL_SECRETS", "my-pull-secret")
+
+	sa, err := r.reconcileServiceAccount(common.ArgoCDServerComponent, a)
+	assert.NoError(t, err)
+	assert.NotNil(t, sa)
+
+	reconciledSA := &corev1.ServiceAccount{}
+	expectedName := fmt.Sprintf("%s-%s", a.Name, common.ArgoCDServerComponent)
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledSA))
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "my-pull-secret"}}, reconciledSA.ImagePullSecrets)
+}
+
+func TestReconcileServiceAccount_WithoutImagePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+
+	sa, err := r.reconcileServiceAccount(common.ArgoCDServerComponent, a)
+	assert.NoError(t, err)
+	assert.NotNil(t, sa)
+
+	reconciledSA := &corev1.ServiceAccount{}
+	expectedName := fmt.Sprintf("%s-%s", a.Name, common.ArgoCDServerComponent)
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledSA))
+	assert.Nil(t, reconciledSA.ImagePullSecrets)
+}
+
+func TestReconcileServiceAccount_UpdateExistingWithPullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+
+	// Create SA without pull secrets
+	_, err := r.reconcileServiceAccount(common.ArgoCDServerComponent, a)
+	assert.NoError(t, err)
+
+	// Now set env var and re-reconcile
+	t.Setenv("IMAGE_PULL_SECRETS", "new-secret")
+	_, err = r.reconcileServiceAccount(common.ArgoCDServerComponent, a)
+	assert.NoError(t, err)
+
+	reconciledSA := &corev1.ServiceAccount{}
+	expectedName := fmt.Sprintf("%s-%s", a.Name, common.ArgoCDServerComponent)
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledSA))
+	assert.Equal(t, []corev1.LocalObjectReference{{Name: "new-secret"}}, reconciledSA.ImagePullSecrets)
+}
+
+func TestReconcileServiceAccount_UpdateExistingRemovePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+
+	// Create SA with pull secrets
+	t.Setenv("IMAGE_PULL_SECRETS", "old-secret")
+	_, err := r.reconcileServiceAccount(common.ArgoCDServerComponent, a)
+	assert.NoError(t, err)
+
+	// Remove env var and re-reconcile
+	os.Unsetenv("IMAGE_PULL_SECRETS")
+	_, err = r.reconcileServiceAccount(common.ArgoCDServerComponent, a)
+	assert.NoError(t, err)
+
+	reconciledSA := &corev1.ServiceAccount{}
+	expectedName := fmt.Sprintf("%s-%s", a.Name, common.ArgoCDServerComponent)
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledSA))
+	assert.Nil(t, reconciledSA.ImagePullSecrets)
 }
 
 func testRules() []v1.PolicyRule {

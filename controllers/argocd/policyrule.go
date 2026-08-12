@@ -440,8 +440,15 @@ func getPolicyRuleList(client client.Client, cr *argoproj.ArgoCD) []struct {
 		}, {
 			name:       common.ArgoCDRedisComponent,
 			policyRule: policyRuleForRedis(client),
+		}, {
+			name:       common.ArgoCDRepoServerComponent,
+			policyRule: policyRuleForRepoServer(),
 		},
 	}
+}
+
+func policyRuleForRepoServer() []v1.PolicyRule {
+	return nil
 }
 
 func getPolicyRuleClusterRoleList() []struct {

@@ -351,3 +351,24 @@ func GetImagePullPolicy(policy corev1.PullPolicy) corev1.PullPolicy {
 
 	}
 }
+
+// GetImagePullSecrets returns the image pull secrets configured via the IMAGE_PULL_SECRETS
+// environment variable. Returns nil if no secrets are configured.
+func GetImagePullSecrets() []corev1.LocalObjectReference {
+	envValue := os.Getenv(common.ArgoCDImagePullSecretsEnvName)
+	if envValue == "" {
+		return nil
+	}
+
+	var refs []corev1.LocalObjectReference
+	for _, name := range strings.Split(envValue, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			refs = append(refs, corev1.LocalObjectReference{Name: name})
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
+}

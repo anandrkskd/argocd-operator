@@ -727,6 +727,34 @@ func TestReconcileApplicationSet_ServiceAccount(t *testing.T) {
 	appsetAssertExpectedLabels(t, &sa.ObjectMeta)
 }
 
+func TestReconcileApplicationSetServiceAccount_WithImagePullSecrets(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+	a.Spec.ApplicationSet = &argoproj.ArgoCDApplicationSet{
+		Enabled: new(true),
+	}
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	t.Setenv("IMAGE_PULL_SECRETS", "appset-pull-secret")
+
+	sa, err := r.reconcileApplicationSetServiceAccount(a)
+	assert.NoError(t, err)
+	assert.NotNil(t, sa)
+
+	testSa := &v1.ServiceAccount{}
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{
+		Name:      "argocd-applicationset-controller",
+		Namespace: a.Namespace,
+	}, testSa))
+	assert.Equal(t, []v1.LocalObjectReference{{Name: "appset-pull-secret"}}, testSa.ImagePullSecrets)
+}
+
 // Test creation/cleanup of applicationset-controller clusterrole & clusterrolebinding
 func TestReconcileApplicationSet_ClusterRBACCreationAndCleanup(t *testing.T) {
 	logf.SetLogger(ZapLogger(true))

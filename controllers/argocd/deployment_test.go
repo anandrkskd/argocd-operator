@@ -2737,17 +2737,17 @@ func TestReconcileArgoCD_reconcileRepoDeployment_serviceAccount(t *testing.T) {
 		}, {
 			testName:                      "Empty serviceAccountName field in the spec should have updated value",
 			serviceAccountName:            "",
-			expectedServiceAccountName:    "",
+			expectedServiceAccountName:    "argocd-argocd-repo-server",
 			isServiceAccountNameChanged:   true,
 			newServiceAccountName:         "builder",
 			newExpectedServiceAccountName: "builder",
 		}, {
-			testName:                      "serviceAccountName field in the spec should be changed to empty",
+			testName:                      "serviceAccountName field in the spec should be changed to empty and use default",
 			serviceAccountName:            "builder",
 			expectedServiceAccountName:    "builder",
 			isServiceAccountNameChanged:   true,
 			newServiceAccountName:         "",
-			newExpectedServiceAccountName: "",
+			newExpectedServiceAccountName: "argocd-argocd-repo-server",
 		},
 	}
 
@@ -3535,4 +3535,52 @@ func TestArgoCDServerAndRepoServerDeploymentArgs(t *testing.T) {
 	assert.NoError(t, r.reconcileRepoDeployment(a, false))
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: "argocd-repo-server", Namespace: a.Namespace}, deployment))
 	assert.Equal(t, args, deployment.Spec.Template.Spec.Containers[0].Args)
+}
+
+func TestReconcileRepoServerDeployment_DefaultServiceAccount(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	err := r.reconcileRepoDeployment(a, false)
+	assert.NoError(t, err)
+
+	deployment := &appsv1.Deployment{}
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{
+		Name:      "argocd-repo-server",
+		Namespace: a.Namespace,
+	}, deployment))
+
+	assert.Equal(t, "argocd-argocd-repo-server", deployment.Spec.Template.Spec.ServiceAccountName)
+}
+
+func TestReconcileRepoServerDeployment_CustomServiceAccount(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD(func(a *argoproj.ArgoCD) {
+		a.Spec.Repo.ServiceAccount = "custom-sa"
+	})
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	err := r.reconcileRepoDeployment(a, false)
+	assert.NoError(t, err)
+
+	deployment := &appsv1.Deployment{}
+	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{
+		Name:      "argocd-repo-server",
+		Namespace: a.Namespace,
+	}, deployment))
+
+	assert.Equal(t, "custom-sa", deployment.Spec.Template.Spec.ServiceAccountName)
 }
