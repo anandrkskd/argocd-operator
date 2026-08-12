@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -932,6 +934,86 @@ func (r *ReconcileArgoCD) reconcileSecrets(cr *argoproj.ArgoCD) error {
 	}
 
 	return nil
+}
+
+func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
+	secretRefs := argoutil.GetImagePullSecrets()
+	if len(secretRefs) == 0 {
+		return nil
+	}
+
+	operatorNS, err := argoutil.GetOperatorNamespace()
+	if err != nil {
+		log.Info("cannot determine operator namespace, skipping image pull secret copy", "error", err)
+		return nil
+	}
+
+	if operatorNS == cr.Namespace {
+		return nil
+	}
+
+	for _, ref := range secretRefs {
+		src := &corev1.Secret{}
+		if err := argoutil.FetchObject(r.Client, operatorNS, ref.Name, src); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Info("image pull secret not found in operator namespace, skipping",
+					"secret", ref.Name, "operatorNamespace", operatorNS)
+				continue
+			}
+			return err
+		}
+
+		dst := &corev1.Secret{}
+		dstExists, err := argoutil.IsObjectFound(r.Client, cr.Namespace, ref.Name, dst)
+		if err != nil {
+			return err
+		}
+
+		if dstExists {
+			needsUpdate := !reflect.DeepEqual(dst.Data, src.Data) || dst.Type != src.Type
+			if !needsUpdate && hasOwnerReference(dst, cr) {
+				continue
+			}
+			dst.Data = src.Data
+			dst.Type = src.Type
+			if err := controllerutil.SetControllerReference(cr, dst, r.Scheme); err != nil {
+				return err
+			}
+			argoutil.LogResourceUpdate(log, dst, "image pull secret data changed")
+			if err := r.Update(context.TODO(), dst); err != nil {
+				return err
+			}
+			continue
+		}
+
+		dst = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ref.Name,
+				Namespace: cr.Namespace,
+				Labels:    argoutil.LabelsForCluster(cr),
+			},
+			Type: src.Type,
+			Data: src.Data,
+		}
+
+		if err := controllerutil.SetControllerReference(cr, dst, r.Scheme); err != nil {
+			return err
+		}
+		argoutil.LogResourceCreation(log, dst)
+		if err := r.Create(context.TODO(), dst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasOwnerReference(obj metav1.Object, owner metav1.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.UID == owner.GetUID() {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *ReconcileArgoCD) getClusterSecrets(cr *argoproj.ArgoCD) (*corev1.SecretList, error) {

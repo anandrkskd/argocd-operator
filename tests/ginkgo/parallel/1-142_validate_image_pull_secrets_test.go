@@ -19,6 +19,7 @@ package parallel
 import (
 	"context"
 	"os"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +29,7 @@ import (
 	argov1beta1api "github.com/argoproj-labs/argocd-operator/api/v1beta1"
 	"github.com/argoproj-labs/argocd-operator/tests/ginkgo/fixture"
 	argocdFixture "github.com/argoproj-labs/argocd-operator/tests/ginkgo/fixture/argocd"
+	secretFixture "github.com/argoproj-labs/argocd-operator/tests/ginkgo/fixture/secret"
 	saFixture "github.com/argoproj-labs/argocd-operator/tests/ginkgo/fixture/serviceaccount"
 	fixtureUtils "github.com/argoproj-labs/argocd-operator/tests/ginkgo/fixture/utils"
 
@@ -50,8 +52,6 @@ var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
 		})
 
 		It("validates that all ArgoCD SAs have imagePullSecrets when env var is set", func() {
-			Skip("requires IMAGE_PULL_SECRETS env var set on operator deployment")
-
 			secretName := os.Getenv("IMAGE_PULL_SECRETS")
 			if secretName == "" {
 				Skip("IMAGE_PULL_SECRETS not set")
@@ -83,6 +83,37 @@ var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: saName, Namespace: randomNS.Name},
 				}
 				Eventually(sa, "2m", "5s").Should(saFixture.HaveImagePullSecret(secretName))
+			}
+		})
+
+		It("validates that image pull secrets are copied to ArgoCD namespace", func() {
+			secretNames := os.Getenv("IMAGE_PULL_SECRETS")
+			if secretNames == "" {
+				Skip("IMAGE_PULL_SECRETS not set")
+			}
+
+			By("creating new namespace-scoped Argo CD instance")
+			randomNS, cleanupFunc := fixture.CreateRandomE2ETestNamespaceWithCleanupFunc()
+			defer cleanupFunc()
+
+			argoCD := &argov1beta1api.ArgoCD{
+				ObjectMeta: metav1.ObjectMeta{Name: "argocd", Namespace: randomNS.Name},
+			}
+			Expect(k8sClient.Create(ctx, argoCD)).To(Succeed())
+
+			By("waiting for ArgoCD to be available")
+			Eventually(argoCD, "5m", "5s").Should(argocdFixture.HavePhase("Available"))
+
+			By("verifying image pull secrets are copied to ArgoCD namespace")
+			for _, name := range strings.Split(secretNames, ",") {
+				name = strings.TrimSpace(name)
+				if name == "" {
+					continue
+				}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: randomNS.Name},
+				}
+				Eventually(secret, "2m", "5s").Should(secretFixture.Exist())
 			}
 		})
 

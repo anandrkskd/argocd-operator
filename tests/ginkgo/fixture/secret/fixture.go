@@ -106,6 +106,13 @@ func NotHaveDataKey(key string) matcher.GomegaMatcher {
 
 }
 
+// Exist returns true if the Secret exists in the cluster
+func Exist() matcher.GomegaMatcher {
+	return fetchSecret(func(sec *corev1.Secret) bool {
+		return true
+	})
+}
+
 // This is intentionally NOT exported, for now. Create another function in this file/package that calls this function, and export that.
 func fetchSecret(f func(*corev1.Secret) bool) matcher.GomegaMatcher {
 

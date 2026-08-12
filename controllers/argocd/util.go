@@ -552,6 +552,12 @@ func (r *ReconcileArgoCD) reconcileResources(cr *argoproj.ArgoCD, argocdStatus *
 		return err
 	}
 
+	log.Info("reconciling image pull secrets")
+	if err := r.reconcileImagePullSecrets(cr); err != nil {
+		log.Info(err.Error())
+		return err
+	}
+
 	log.Info("reconciling service accounts")
 	if err := r.reconcileServiceAccounts(cr); err != nil {
 		log.Info(err.Error())

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -1379,4 +1380,218 @@ type getAlwaysErrClient struct {
 
 func (c *getAlwaysErrClient) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
 	return c.getErr
+}
+
+func setupOperatorNamespaceFile(t *testing.T, ns string) {
+	t.Helper()
+	dir := t.TempDir()
+	nsFile := filepath.Join(dir, "namespace")
+	require.NoError(t, os.WriteFile(nsFile, []byte(ns), 0644))
+	old := argoutil.OperatorNamespaceFile
+	argoutil.OperatorNamespaceFile = nsFile
+	t.Cleanup(func() { argoutil.OperatorNamespaceFile = old })
+}
+
+func TestReconcileImagePullSecrets_NoEnvVar(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	// No IMAGE_PULL_SECRETS set — should be a no-op
+	err := r.reconcileImagePullSecrets(a)
+	assert.NoError(t, err)
+}
+
+func TestReconcileImagePullSecrets_SameNamespace(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	// Operator runs in same namespace as CR
+	setupOperatorNamespaceFile(t, a.Namespace)
+	t.Setenv("IMAGE_PULL_SECRETS", "my-secret")
+
+	err := r.reconcileImagePullSecrets(a)
+	assert.NoError(t, err)
+
+	// Secret should not be created (same namespace, nothing to copy)
+	secret := &corev1.Secret{}
+	err = cl.Get(context.TODO(), types.NamespacedName{Name: "my-secret", Namespace: a.Namespace}, secret)
+	assert.True(t, errors.Is(err, err) && err != nil) // not found is fine, secret wasn't created
+}
+
+func TestReconcileImagePullSecrets_CreatesInTargetNamespace(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	srcSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pull-secret",
+			Namespace: "operator-ns",
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			".dockerconfigjson": []byte(`{"auths":{}}`),
+		},
+	}
+
+	resObjs := []client.Object{a, srcSecret}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	setupOperatorNamespaceFile(t, "operator-ns")
+	t.Setenv("IMAGE_PULL_SECRETS", "my-pull-secret")
+
+	err := r.reconcileImagePullSecrets(a)
+	assert.NoError(t, err)
+
+	// Verify secret was copied to CR namespace
+	dst := &corev1.Secret{}
+	err = cl.Get(context.TODO(), types.NamespacedName{Name: "my-pull-secret", Namespace: a.Namespace}, dst)
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.SecretTypeDockerConfigJson, dst.Type)
+	assert.Equal(t, srcSecret.Data, dst.Data)
+
+	// Verify owner reference set
+	assert.Len(t, dst.OwnerReferences, 1)
+	assert.Equal(t, a.Name, dst.OwnerReferences[0].Name)
+}
+
+func TestReconcileImagePullSecrets_SkipsWhenDataAndOwnerUnchanged(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	secretData := map[string][]byte{
+		".dockerconfigjson": []byte(`{"auths":{}}`),
+	}
+
+	srcSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pull-secret",
+			Namespace: "operator-ns",
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: secretData,
+	}
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+
+	dstSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pull-secret",
+			Namespace: a.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: argoproj.GroupVersion.String(),
+					Kind:       "ArgoCD",
+					Name:       a.Name,
+					UID:        a.UID,
+				},
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: secretData,
+	}
+
+	resObjs := []client.Object{a, srcSecret, dstSecret}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	setupOperatorNamespaceFile(t, "operator-ns")
+	t.Setenv("IMAGE_PULL_SECRETS", "my-pull-secret")
+
+	err := r.reconcileImagePullSecrets(a)
+	assert.NoError(t, err)
+
+	// Data and owner ref unchanged — verify no update happened
+	dst := &corev1.Secret{}
+	err = cl.Get(context.TODO(), types.NamespacedName{Name: "my-pull-secret", Namespace: a.Namespace}, dst)
+	assert.NoError(t, err)
+	assert.Equal(t, dstSecret.ResourceVersion, dst.ResourceVersion)
+}
+
+func TestReconcileImagePullSecrets_UpdatesWhenDataChanged(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	srcSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pull-secret",
+			Namespace: "operator-ns",
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			".dockerconfigjson": []byte(`{"auths":{"new":"creds"}}`),
+		},
+	}
+
+	dstSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pull-secret",
+			Namespace: a.Namespace,
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			".dockerconfigjson": []byte(`{"auths":{"old":"creds"}}`),
+		},
+	}
+
+	resObjs := []client.Object{a, srcSecret, dstSecret}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	setupOperatorNamespaceFile(t, "operator-ns")
+	t.Setenv("IMAGE_PULL_SECRETS", "my-pull-secret")
+
+	err := r.reconcileImagePullSecrets(a)
+	assert.NoError(t, err)
+
+	dst := &corev1.Secret{}
+	err = cl.Get(context.TODO(), types.NamespacedName{Name: "my-pull-secret", Namespace: a.Namespace}, dst)
+	assert.NoError(t, err)
+	assert.Equal(t, srcSecret.Data, dst.Data)
+}
+
+func TestReconcileImagePullSecrets_SourceMissing(t *testing.T) {
+	logf.SetLogger(ZapLogger(true))
+	a := makeTestArgoCD()
+
+	resObjs := []client.Object{a}
+	subresObjs := []client.Object{a}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	setupOperatorNamespaceFile(t, "operator-ns")
+	t.Setenv("IMAGE_PULL_SECRETS", "nonexistent-secret")
+
+	// Should not error — just log warning and continue
+	err := r.reconcileImagePullSecrets(a)
+	assert.NoError(t, err)
+
+	// Verify no secret created in CR namespace
+	dst := &corev1.Secret{}
+	err = cl.Get(context.TODO(), types.NamespacedName{Name: "nonexistent-secret", Namespace: a.Namespace}, dst)
+	assert.Error(t, err)
 }
