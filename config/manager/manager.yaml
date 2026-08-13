@@ -59,7 +59,5 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.annotations['olm.targetNamespaces']
-        # - name: IMAGE_PULL_SECRETS
-        #   value: ""
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
