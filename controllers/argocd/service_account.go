@@ -16,6 +16,7 @@ package argocd
 
 import (
 	"context"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -130,9 +131,17 @@ func (r *ReconcileArgoCD) reconcileServiceAccount(name string, cr *argoproj.Argo
 			argoutil.LogResourceDeletion(log, sa, "component is being uninstalled")
 			return sa, r.Delete(context.TODO(), sa)
 		}
+
+		desired := r.getImagePullSecretRefs(cr)
+		if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+			sa.ImagePullSecrets = desired
+			argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
+			return sa, r.Update(context.TODO(), sa)
+		}
 		return sa, nil
 	}
 
+	sa.ImagePullSecrets = r.getImagePullSecretRefs(cr)
 	if err := controllerutil.SetControllerReference(cr, sa, r.Scheme); err != nil {
 		return nil, err
 	}

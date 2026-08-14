@@ -229,6 +229,7 @@ func (r *ReconcileArgoCD) reconcileNotificationsServiceAccount(cr *argoproj.Argo
 			return nil, err
 		}
 
+		sa.ImagePullSecrets = r.getImagePullSecretRefs(cr)
 		argoutil.LogResourceCreation(log, sa)
 		err := r.Create(context.TODO(), sa)
 		if err != nil {
@@ -240,6 +241,15 @@ func (r *ReconcileArgoCD) reconcileNotificationsServiceAccount(cr *argoproj.Argo
 	if !isNotificationsEnabled(cr) {
 		argoutil.LogResourceDeletion(log, sa, "notifications are disabled")
 		return nil, r.Delete(context.TODO(), sa)
+	}
+
+	desired := r.getImagePullSecretRefs(cr)
+	if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+		sa.ImagePullSecrets = desired
+		argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
+		if err := r.Update(context.TODO(), sa); err != nil {
+			return nil, err
+		}
 	}
 
 	return sa, nil

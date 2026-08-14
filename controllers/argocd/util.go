@@ -553,6 +553,12 @@ func (r *ReconcileArgoCD) reconcileResources(cr *argoproj.ArgoCD, argocdStatus *
 		return err
 	}
 
+	log.Info("reconciling image pull secrets")
+	if err := r.reconcileImagePullSecrets(cr); err != nil {
+		log.Info(err.Error())
+		return err
+	}
+
 	log.Info("reconciling service accounts")
 	if err := r.reconcileServiceAccounts(cr); err != nil {
 		log.Info(err.Error())
@@ -1637,7 +1643,7 @@ func (r *ReconcileArgoCD) reconcileArgoCDAgent(cr *argoproj.ArgoCD) error {
 	var err error
 
 	log.Info("reconciling ArgoCD Agent's Principal service account")
-	if sa, err = argocdagent.ReconcilePrincipalServiceAccount(r.Client, compName, cr, r.Scheme); err != nil {
+	if sa, err = argocdagent.ReconcilePrincipalServiceAccount(r.Client, compName, cr, r.Scheme, r.getImagePullSecretRefs(cr)); err != nil {
 		return err
 	}
 
@@ -1713,7 +1719,7 @@ func (r *ReconcileArgoCD) reconcileArgoCDAgent(cr *argoproj.ArgoCD) error {
 
 	log.Info("reconciling ArgoCD Agent's Agent service account")
 	var agentSa *corev1.ServiceAccount
-	if agentSa, err = agent.ReconcileAgentServiceAccount(r.Client, agentCompName, cr, r.Scheme); err != nil {
+	if agentSa, err = agent.ReconcileAgentServiceAccount(r.Client, agentCompName, cr, r.Scheme, r.getImagePullSecretRefs(cr)); err != nil {
 		return err
 	}
 
