@@ -820,7 +820,8 @@ func removeString(slice []string, s string) []string {
 }
 
 // setResourceWatches will register Watches for each of the supported Resources.
-func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResourceMapper, tlsSecretMapper, namespaceResourceMapper, clusterSecretResourceMapper, applicationSetGitlabSCMTLSConfigMapMapper, nmMapper, systemCATrustMapper handler.MapFunc) *builder.Builder {
+func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResourceMapper, tlsSecretMapper, namespaceResourceMapper, clusterSecretResourceMapper, applicationSetGitlabSCMTLSConfigMapMapper, nmMapper, systemCATrustMapper, imagePullSecretMapper handler.MapFunc) *builder.Builder {
+
 	// Add new predicate to delete Notifications Resources. The predicate watches the Argo CD CR for changes to the `.spec.Notifications.Enabled`
 	// field. When a change is detected that results in notifications being disabled, we trigger deletion of notifications resources
 	deleteNotificationsPred := predicate.Funcs{
@@ -886,6 +887,13 @@ func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResou
 			common.ArgoCDManagedByClusterArgoCDLabel: "cluster",
 		},
 	}}, handler.EnqueueRequestsFromMapFunc(clusterSecretResourceMapper))
+
+	// Triggers reconcile for all ArgoCD instances when a propagation-labeled secret is created, updated, or evicted from the filtered cache.
+	bldr.Watches(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Labels: map[string]string{
+			common.ArgoCDImagePullSecretPropagateLabel: "true",
+		},
+	}}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper))
 
 	// Inspect cluster to verify availability of extra features
 	// This sets the flags that are used in subsequent checks

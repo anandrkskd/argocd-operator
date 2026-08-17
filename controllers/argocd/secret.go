@@ -957,7 +957,7 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 	sourceSecrets := &corev1.SecretList{}
 	if err := r.List(ctx, sourceSecrets,
 		client.InNamespace(operatorNS),
-		client.HasLabels{common.ArgoCDImagePullSecretPropagateLabel}); err != nil {
+		client.MatchingLabels{common.ArgoCDImagePullSecretPropagateLabel: "true"}); err != nil {
 		return fmt.Errorf("failed to list image pull secrets in operator namespace: %w", err)
 	}
 
@@ -1058,7 +1058,7 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) []corev1.L
 		inNS := &corev1.SecretList{}
 		if err := r.List(ctx, inNS,
 			client.InNamespace(cr.Namespace),
-			client.HasLabels{common.ArgoCDImagePullSecretPropagateLabel}); err != nil {
+			client.MatchingLabels{common.ArgoCDImagePullSecretPropagateLabel: "true"}); err != nil {
 			log.Error(err, "failed to list in-namespace image pull secrets")
 			return nil
 		}
