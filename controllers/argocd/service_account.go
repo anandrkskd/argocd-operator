@@ -74,6 +74,10 @@ func (r *ReconcileArgoCD) reconcileServiceAccounts(cr *argoproj.ArgoCD) error {
 		}
 	}
 
+	if _, err := r.reconcileServiceAccount(common.ArgoCDRepoServerComponent, cr); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -109,6 +113,10 @@ func (r *ReconcileArgoCD) reconcileServiceAccount(name string, cr *argoproj.Argo
 	shouldExist := name != common.ArgoCDDexServerComponent || UseDex(cr)
 
 	if name == common.ArgoCDCommitServerComponent && !UseCommitServer(cr) {
+		shouldExist = false
+	}
+
+	if name == common.ArgoCDRepoServerComponent && (!cr.Spec.Repo.IsEnabled() || cr.Spec.Repo.IsRemote()) {
 		shouldExist = false
 	}
 
