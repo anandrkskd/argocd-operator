@@ -554,3 +554,84 @@ func TestImagePullSecretMapper_EnqueuesOnDeleteEvent(t *testing.T) {
 	requests := r.imagePullSecretMapper(context.TODO(), deletedSecret)
 	assert.Len(t, requests, 1)
 }
+
+func TestReconcileImagePullSecrets_SkipsWhenMultipleLabeled(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	cr := makeTestArgoCD()
+
+	secret1 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret-1",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{}}`)},
+	}
+
+	secret2 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret-2",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{}}`)},
+	}
+
+	operatorNSObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorNS}}
+	crNSObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}
+
+	resObjs := []client.Object{cr, secret1, secret2, operatorNSObj, crNSObj}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	err := r.reconcileImagePullSecrets(cr)
+	assert.NoError(t, err)
+
+	copied := &corev1.SecretList{}
+	err = cl.List(context.TODO(), copied, client.InNamespace(testNamespace), client.HasLabels{common.ArgoCDImagePullSecretCopiedLabel})
+	assert.NoError(t, err)
+	assert.Empty(t, copied.Items, "no secrets should be copied when multiple labeled secrets exist")
+}
+
+func TestGetImagePullSecretRefs_SkipsWhenMultipleLabeledInNamespace(t *testing.T) {
+	setOperatorNamespace(t, testNamespace)
+
+	cr := makeTestArgoCD()
+
+	secret1 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret-1",
+			Namespace: testNamespace,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+	}
+
+	secret2 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret-2",
+			Namespace: testNamespace,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+	}
+
+	resObjs := []client.Object{cr, secret1, secret2}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	refs := r.getImagePullSecretRefs(cr)
+	assert.Empty(t, refs, "no refs should be returned when multiple labeled secrets exist")
+}

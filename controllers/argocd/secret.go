@@ -961,6 +961,12 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 		return fmt.Errorf("failed to list image pull secrets in operator namespace: %w", err)
 	}
 
+	if len(sourceSecrets.Items) > 1 {
+		log.Info("multiple labeled image pull secrets found in operator namespace, only one is allowed — skipping propagation",
+			"operatorNamespace", operatorNS, "targetNamespace", cr.Namespace, "count", len(sourceSecrets.Items))
+		return nil
+	}
+
 	log.V(1).Info("found labeled image pull secrets in operator namespace",
 		"count", len(sourceSecrets.Items), "operatorNamespace", operatorNS)
 
@@ -1062,8 +1068,13 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) []corev1.L
 			log.Error(err, "failed to list in-namespace image pull secrets")
 			return nil
 		}
-		for _, s := range inNS.Items {
-			refs = append(refs, corev1.LocalObjectReference{Name: s.Name})
+		if len(inNS.Items) > 1 {
+			log.Info("multiple labeled image pull secrets found in namespace, only one is allowed — skipping",
+				"namespace", cr.Namespace, "count", len(inNS.Items))
+		} else {
+			for _, s := range inNS.Items {
+				refs = append(refs, corev1.LocalObjectReference{Name: s.Name})
+			}
 		}
 		log.V(1).Info("found in-namespace labeled image pull secrets",
 			"count", len(inNS.Items), "namespace", cr.Namespace)

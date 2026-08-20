@@ -889,11 +889,15 @@ func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResou
 	}}, handler.EnqueueRequestsFromMapFunc(clusterSecretResourceMapper))
 
 	// Triggers reconcile for all ArgoCD instances when a propagation-labeled secret is created, updated, or evicted from the filtered cache.
-	bldr.Watches(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-		Labels: map[string]string{
-			common.ArgoCDImagePullSecretPropagateLabel: "true",
-		},
-	}}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper))
+	//https://github.com/stolostron/multicloud-integrations/blob/main/gitopsaddon/gitopsaddon_cleanup.go#L47
+	// TODO: check for gitopsaddon label, if controller should not enable this watch
+	if !IsOpenShiftCluster() {
+		bldr.Watches(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		}}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper))
+	}
 
 	// Inspect cluster to verify availability of extra features
 	// This sets the flags that are used in subsequent checks
