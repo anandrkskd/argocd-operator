@@ -889,8 +889,7 @@ func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResou
 	}}, handler.EnqueueRequestsFromMapFunc(clusterSecretResourceMapper))
 
 	// Triggers reconcile for all ArgoCD instances when a propagation-labeled secret is created, updated, or evicted from the filtered cache.
-	//https://github.com/stolostron/multicloud-integrations/blob/main/gitopsaddon/gitopsaddon_cleanup.go#L47
-	// TODO: check for gitopsaddon label, if controller should not enable this watch
+	// skips for openshift clusters, as openshift already have access to registry.redhat.io
 	if !IsOpenShiftCluster() {
 		bldr.Watches(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
