@@ -961,67 +961,67 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 		return fmt.Errorf("failed to list image pull secrets in operator namespace: %w", err)
 	}
 
-	if len(sourceSecrets.Items) > 1 {
-		log.Info("multiple labeled image pull secrets found in operator namespace, only one is allowed — skipping propagation",
-			"operatorNamespace", operatorNS, "targetNamespace", cr.Namespace, "count", len(sourceSecrets.Items))
-		return nil
-	}
-
 	log.V(1).Info("found labeled image pull secrets in operator namespace",
 		"count", len(sourceSecrets.Items), "operatorNamespace", operatorNS)
 
 	desiredNames := make(map[string]bool)
-	for i := range sourceSecrets.Items {
-		src := &sourceSecrets.Items[i]
-		desiredNames[src.Name] = true
 
-		existing := &corev1.Secret{}
-		err := r.Get(ctx, client.ObjectKey{Name: src.Name, Namespace: cr.Namespace}, existing)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return fmt.Errorf("failed to get secret %s in namespace %s: %w", src.Name, cr.Namespace, err)
-			}
+	if len(sourceSecrets.Items) > 1 {
+		log.Info("multiple labeled image pull secrets found in operator namespace, only one is allowed — skipping propagation",
+			"operatorNamespace", operatorNS, "targetNamespace", cr.Namespace, "count", len(sourceSecrets.Items))
+	} else {
+		for i := range sourceSecrets.Items {
+			src := &sourceSecrets.Items[i]
+			desiredNames[src.Name] = true
 
-			log.V(1).Info("copying image pull secret to ArgoCD namespace",
-				"secret", src.Name, "from", operatorNS, "to", cr.Namespace)
+			existing := &corev1.Secret{}
+			err := r.Get(ctx, client.ObjectKey{Name: src.Name, Namespace: cr.Namespace}, existing)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return fmt.Errorf("failed to get secret %s in namespace %s: %w", src.Name, cr.Namespace, err)
+				}
 
-			dst := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      src.Name,
-					Namespace: cr.Namespace,
-					Labels: map[string]string{
-						common.ArgoCDImagePullSecretCopiedLabel: src.Name,
-						common.ArgoCDTrackedByOperatorLabel:     common.ArgoCDAppName,
+				log.V(1).Info("copying image pull secret to ArgoCD namespace",
+					"secret", src.Name, "from", operatorNS, "to", cr.Namespace)
+
+				dst := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      src.Name,
+						Namespace: cr.Namespace,
+						Labels: map[string]string{
+							common.ArgoCDImagePullSecretCopiedLabel: src.Name,
+							common.ArgoCDTrackedByOperatorLabel:     common.ArgoCDAppName,
+						},
 					},
-				},
-				Type: src.Type,
-				Data: src.Data,
+					Type: src.Type,
+					Data: src.Data,
+				}
+
+				if err := controllerutil.SetControllerReference(cr, dst, r.Scheme); err != nil {
+					return fmt.Errorf("failed to set owner on copied secret %s: %w", src.Name, err)
+				}
+				argoutil.LogResourceCreation(log, dst)
+				if err := r.Create(ctx, dst); err != nil {
+					return fmt.Errorf("failed to create copied secret %s: %w", src.Name, err)
+				}
+				continue
 			}
 
-			if err := controllerutil.SetControllerReference(cr, dst, r.Scheme); err != nil {
-				return fmt.Errorf("failed to set owner on copied secret %s: %w", src.Name, err)
+			if existing.Labels[common.ArgoCDImagePullSecretCopiedLabel] != src.Name || !metav1.IsControlledBy(existing, cr) {
+				log.Info("secret with same name already exists and is not managed by this ArgoCD instance, skipping",
+					"secret", src.Name, "namespace", cr.Namespace)
+				continue
 			}
-			argoutil.LogResourceCreation(log, dst)
-			if err := r.Create(ctx, dst); err != nil {
-				return fmt.Errorf("failed to create copied secret %s: %w", src.Name, err)
-			}
-			continue
-		}
 
-		if _, ok := existing.Labels[common.ArgoCDImagePullSecretCopiedLabel]; !ok {
-			log.Info("secret with same name already exists and is not managed by operator, skipping",
-				"secret", src.Name, "namespace", cr.Namespace)
-			continue
-		}
-
-		if !reflect.DeepEqual(existing.Data, src.Data) || existing.Type != src.Type {
-			log.V(1).Info("image pull secret data changed, updating copy",
-				"secret", src.Name, "namespace", cr.Namespace)
-			existing.Data = src.Data
-			existing.Type = src.Type
-			argoutil.LogResourceUpdate(log, existing, "image pull secret data changed")
-			if err := r.Update(ctx, existing); err != nil {
-				return fmt.Errorf("failed to update copied secret %s: %w", src.Name, err)
+			if !reflect.DeepEqual(existing.Data, src.Data) || existing.Type != src.Type {
+				log.V(1).Info("image pull secret data changed, updating copy",
+					"secret", src.Name, "namespace", cr.Namespace)
+				existing.Data = src.Data
+				existing.Type = src.Type
+				argoutil.LogResourceUpdate(log, existing, "image pull secret data changed")
+				if err := r.Update(ctx, existing); err != nil {
+					return fmt.Errorf("failed to update copied secret %s: %w", src.Name, err)
+				}
 			}
 		}
 	}
@@ -1035,6 +1035,9 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 
 	for i := range existingCopies.Items {
 		copy := &existingCopies.Items[i]
+		if !metav1.IsControlledBy(copy, cr) {
+			continue
+		}
 		sourceName := copy.Labels[common.ArgoCDImagePullSecretCopiedLabel]
 		if !desiredNames[sourceName] {
 			log.V(1).Info("removing stale image pull secret copy, source no longer labeled",
@@ -1049,7 +1052,7 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 	return nil
 }
 
-func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) []corev1.LocalObjectReference {
+func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) ([]corev1.LocalObjectReference, error) {
 	ctx := context.TODO()
 	var refs []corev1.LocalObjectReference
 
@@ -1065,8 +1068,7 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) []corev1.L
 		if err := r.List(ctx, inNS,
 			client.InNamespace(cr.Namespace),
 			client.MatchingLabels{common.ArgoCDImagePullSecretPropagateLabel: "true"}); err != nil {
-			log.Error(err, "failed to list in-namespace image pull secrets")
-			return nil
+			return nil, fmt.Errorf("failed to list in-namespace image pull secrets: %w", err)
 		}
 		if len(inNS.Items) > 1 {
 			log.Info("multiple labeled image pull secrets found in namespace, only one is allowed — skipping",
@@ -1084,11 +1086,13 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) []corev1.L
 	if err := r.List(ctx, copiedSecrets,
 		client.InNamespace(cr.Namespace),
 		client.HasLabels{common.ArgoCDImagePullSecretCopiedLabel}); err != nil {
-		log.Error(err, "failed to list copied image pull secrets")
-		return refs
+		return nil, fmt.Errorf("failed to list copied image pull secrets: %w", err)
 	}
-	for _, s := range copiedSecrets.Items {
-		refs = append(refs, corev1.LocalObjectReference{Name: s.Name})
+	for i := range copiedSecrets.Items {
+		if !metav1.IsControlledBy(&copiedSecrets.Items[i], cr) {
+			continue
+		}
+		refs = append(refs, corev1.LocalObjectReference{Name: copiedSecrets.Items[i].Name})
 	}
 
 	sort.Slice(refs, func(i, j int) bool {
@@ -1098,7 +1102,7 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) []corev1.L
 	log.V(1).Info("resolved image pull secret refs for service accounts",
 		"totalRefs", len(refs), "namespace", cr.Namespace)
 
-	return refs
+	return refs, nil
 }
 
 func (r *ReconcileArgoCD) getClusterSecrets(cr *argoproj.ArgoCD) (*corev1.SecretList, error) {

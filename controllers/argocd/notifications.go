@@ -229,9 +229,13 @@ func (r *ReconcileArgoCD) reconcileNotificationsServiceAccount(cr *argoproj.Argo
 			return nil, err
 		}
 
-		sa.ImagePullSecrets = r.getImagePullSecretRefs(cr)
+		refs, err := r.getImagePullSecretRefs(cr)
+		if err != nil {
+			return nil, err
+		}
+		sa.ImagePullSecrets = refs
 		argoutil.LogResourceCreation(log, sa)
-		err := r.Create(context.TODO(), sa)
+		err = r.Create(context.TODO(), sa)
 		if err != nil {
 			return nil, err
 		}
@@ -243,7 +247,10 @@ func (r *ReconcileArgoCD) reconcileNotificationsServiceAccount(cr *argoproj.Argo
 		return nil, r.Delete(context.TODO(), sa)
 	}
 
-	desired := r.getImagePullSecretRefs(cr)
+	desired, err := r.getImagePullSecretRefs(cr)
+	if err != nil {
+		return nil, err
+	}
 	if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
 		sa.ImagePullSecrets = desired
 		argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")

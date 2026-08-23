@@ -2,6 +2,7 @@ package argocd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,11 +13,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	argoproj "github.com/argoproj-labs/argocd-operator/api/v1beta1"
 	"github.com/argoproj-labs/argocd-operator/common"
 	"github.com/argoproj-labs/argocd-operator/controllers/argoutil"
 )
+
+func testOwnerRef(cr *argoproj.ArgoCD) metav1.OwnerReference {
+	t := true
+	return metav1.OwnerReference{
+		APIVersion:         "argoproj.io/v1beta1",
+		Kind:               "ArgoCD",
+		Name:               cr.Name,
+		UID:                cr.UID,
+		Controller:         &t,
+		BlockOwnerDeletion: &t,
+	}
+}
 
 func setOperatorNamespace(t *testing.T, ns string) {
 	t.Helper()
@@ -140,6 +156,7 @@ func TestReconcileImagePullSecrets_DeletesStaleCopies(t *testing.T) {
 	setOperatorNamespace(t, operatorNS)
 
 	cr := makeTestArgoCD()
+	cr.UID = "test-uid-1"
 
 	staleCopy := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -149,6 +166,7 @@ func TestReconcileImagePullSecrets_DeletesStaleCopies(t *testing.T) {
 				common.ArgoCDImagePullSecretCopiedLabel: "old-pull-secret",
 				common.ArgoCDTrackedByOperatorLabel:     common.ArgoCDAppName,
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
@@ -177,6 +195,7 @@ func TestReconcileImagePullSecrets_UpdatesCopyWhenDataChanges(t *testing.T) {
 	setOperatorNamespace(t, operatorNS)
 
 	cr := makeTestArgoCD()
+	cr.UID = "test-uid-1"
 
 	srcSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -200,6 +219,7 @@ func TestReconcileImagePullSecrets_UpdatesCopyWhenDataChanges(t *testing.T) {
 				common.ArgoCDImagePullSecretCopiedLabel: "my-pull-secret",
 				common.ArgoCDTrackedByOperatorLabel:     common.ArgoCDAppName,
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
@@ -286,6 +306,7 @@ func TestGetImagePullSecretRefs_ReturnsCopiedSecrets(t *testing.T) {
 			Labels: map[string]string{
 				common.ArgoCDImagePullSecretCopiedLabel: "my-pull-secret",
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 	}
 
@@ -294,7 +315,8 @@ func TestGetImagePullSecretRefs_ReturnsCopiedSecrets(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
 	r := makeTestReconciler(cl, sch, nil)
 
-	refs := r.getImagePullSecretRefs(cr)
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.NoError(t, err)
 	assert.Len(t, refs, 1)
 	assert.Equal(t, "my-pull-secret", refs[0].Name)
 }
@@ -319,7 +341,8 @@ func TestGetImagePullSecretRefs_ReturnsInNamespaceSecrets(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
 	r := makeTestReconciler(cl, sch, nil)
 
-	refs := r.getImagePullSecretRefs(cr)
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.NoError(t, err)
 	assert.Len(t, refs, 1)
 	assert.Equal(t, "my-pull-secret", refs[0].Name)
 }
@@ -335,7 +358,8 @@ func TestGetImagePullSecretRefs_ReturnsEmptyWhenNone(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
 	r := makeTestReconciler(cl, sch, nil)
 
-	refs := r.getImagePullSecretRefs(cr)
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.NoError(t, err)
 	assert.Empty(t, refs)
 }
 
@@ -352,6 +376,7 @@ func TestGetImagePullSecretRefs_SortedByName(t *testing.T) {
 			Labels: map[string]string{
 				common.ArgoCDImagePullSecretCopiedLabel: "b-secret",
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 	}
 
@@ -362,6 +387,7 @@ func TestGetImagePullSecretRefs_SortedByName(t *testing.T) {
 			Labels: map[string]string{
 				common.ArgoCDImagePullSecretCopiedLabel: "a-secret",
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 	}
 
@@ -370,7 +396,8 @@ func TestGetImagePullSecretRefs_SortedByName(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
 	r := makeTestReconciler(cl, sch, nil)
 
-	refs := r.getImagePullSecretRefs(cr)
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.NoError(t, err)
 	assert.Len(t, refs, 2)
 	assert.Equal(t, "a-secret", refs[0].Name)
 	assert.Equal(t, "b-secret", refs[1].Name)
@@ -389,6 +416,7 @@ func TestReconcileServiceAccount_SetsImagePullSecrets(t *testing.T) {
 			Labels: map[string]string{
 				common.ArgoCDImagePullSecretCopiedLabel: "my-pull-secret",
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 	}
 
@@ -437,6 +465,7 @@ func TestReconcileServiceAccount_UpdatesImagePullSecrets(t *testing.T) {
 			Labels: map[string]string{
 				common.ArgoCDImagePullSecretCopiedLabel: "new-pull-secret",
 			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
 		},
 	}
 
@@ -530,9 +559,8 @@ func TestImagePullSecretMapper_EnqueuesAllArgoCDInstances(t *testing.T) {
 	assert.Equal(t, "argocd-2", names["ns-2"])
 }
 
-// The watch uses a label selector so only secrets with the propagation label reach the mapper.
-// When the label changes from "true" to "false", the informer delivers a delete event with
-// the old object — mapper must still enqueue so reconcileImagePullSecrets cleans up stale copies.
+// Mapper enqueues unconditionally — predicate handles filtering.
+// Label true→false appears as delete event; mapper must still enqueue for stale-copy cleanup.
 func TestImagePullSecretMapper_EnqueuesOnDeleteEvent(t *testing.T) {
 	cr := makeTestArgoCD()
 
@@ -602,6 +630,68 @@ func TestReconcileImagePullSecrets_SkipsWhenMultipleLabeled(t *testing.T) {
 	assert.Empty(t, copied.Items, "no secrets should be copied when multiple labeled secrets exist")
 }
 
+func TestReconcileImagePullSecrets_CleansUpStaleWhenMultipleLabeled(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	cr := makeTestArgoCD()
+	cr.UID = "test-uid-1"
+
+	staleCopy := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "old-pull-secret",
+			Namespace: testNamespace,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretCopiedLabel: "old-pull-secret",
+				common.ArgoCDTrackedByOperatorLabel:     common.ArgoCDAppName,
+			},
+			OwnerReferences: []metav1.OwnerReference{testOwnerRef(cr)},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{}}`)},
+	}
+
+	secret1 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret-1",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{}}`)},
+	}
+
+	secret2 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret-2",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{}}`)},
+	}
+
+	operatorNSObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorNS}}
+	crNSObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}
+
+	resObjs := []client.Object{cr, staleCopy, secret1, secret2, operatorNSObj, crNSObj}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	err := r.reconcileImagePullSecrets(cr)
+	assert.NoError(t, err)
+
+	copied := &corev1.SecretList{}
+	err = cl.List(context.TODO(), copied, client.InNamespace(testNamespace), client.HasLabels{common.ArgoCDImagePullSecretCopiedLabel})
+	assert.NoError(t, err)
+	assert.Empty(t, copied.Items, "stale copies must be cleaned up even when multiple labeled secrets cause propagation skip")
+}
+
 func TestGetImagePullSecretRefs_SkipsWhenMultipleLabeledInNamespace(t *testing.T) {
 	setOperatorNamespace(t, testNamespace)
 
@@ -632,6 +722,234 @@ func TestGetImagePullSecretRefs_SkipsWhenMultipleLabeledInNamespace(t *testing.T
 	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
 	r := makeTestReconciler(cl, sch, nil)
 
-	refs := r.getImagePullSecretRefs(cr)
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.NoError(t, err)
 	assert.Empty(t, refs, "no refs should be returned when multiple labeled secrets exist")
+}
+
+func TestGetImagePullSecretRefs_ErrorOnInNamespaceListFailure(t *testing.T) {
+	setOperatorNamespace(t, testNamespace)
+
+	cr := makeTestArgoCD()
+	listErr := fmt.Errorf("simulated API error")
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(cr).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.SecretList); ok {
+					return listErr
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).Build()
+	r := makeTestReconciler(cl, sch, nil)
+
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.ErrorIs(t, err, listErr)
+	assert.Nil(t, refs)
+}
+
+func TestGetImagePullSecretRefs_ErrorOnCopiedSecretListFailure(t *testing.T) {
+	setOperatorNamespace(t, testNamespace)
+
+	cr := makeTestArgoCD()
+	listErr := fmt.Errorf("simulated API error")
+	callCount := 0
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(cr).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.SecretList); ok {
+					callCount++
+					if callCount == 1 {
+						return c.List(ctx, list, opts...)
+					}
+					return listErr
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).Build()
+	r := makeTestReconciler(cl, sch, nil)
+
+	refs, err := r.getImagePullSecretRefs(cr)
+	require.ErrorIs(t, err, listErr)
+	assert.Nil(t, refs)
+}
+
+func TestReconcileImagePullSecrets_PreservesCopiedLabelSecretNotOwnedByThisCR(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	cr := makeTestArgoCD()
+	cr.UID = "test-uid-1"
+
+	srcSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{"new":"creds"}}`)},
+	}
+
+	otherOwner := metav1.OwnerReference{
+		APIVersion: "argoproj.io/v1beta1",
+		Kind:       "ArgoCD",
+		Name:       "other-argocd",
+		UID:        "other-uid-999",
+	}
+	existingNotOwned := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: testNamespace,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretCopiedLabel: "pull-secret",
+			},
+			OwnerReferences: []metav1.OwnerReference{otherOwner},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{".dockerconfigjson": []byte(`{"auths":{"old":"creds"}}`)},
+	}
+
+	operatorNSObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorNS}}
+	crNSObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}
+
+	resObjs := []client.Object{cr, srcSecret, existingNotOwned, operatorNSObj, crNSObj}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	err := r.reconcileImagePullSecrets(cr)
+	assert.NoError(t, err)
+
+	preserved := &corev1.Secret{}
+	err = cl.Get(context.TODO(), types.NamespacedName{Name: "pull-secret", Namespace: testNamespace}, preserved)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte(`{"auths":{"old":"creds"}}`), preserved.Data[".dockerconfigjson"],
+		"secret owned by another ArgoCD instance must not be updated")
+}
+
+func TestImagePullSecretPredicate_AcceptsOperatorNamespace(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, nil, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	pred := r.imagePullSecretFilterPredicate()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+	}
+
+	assert.True(t, pred.Create(event.CreateEvent{Object: secret}))
+	assert.True(t, pred.Delete(event.DeleteEvent{Object: secret}))
+}
+
+func TestImagePullSecretPredicate_RejectsOtherNamespace(t *testing.T) {
+	setOperatorNamespace(t, "operator-ns")
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, nil, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	pred := r.imagePullSecretFilterPredicate()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: "some-other-ns",
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+	}
+
+	assert.False(t, pred.Create(event.CreateEvent{Object: secret}))
+	assert.False(t, pred.Delete(event.DeleteEvent{Object: secret}))
+}
+
+func TestImagePullSecretPredicate_RejectsUnlabeledSecret(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, nil, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	pred := r.imagePullSecretFilterPredicate()
+
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unrelated-secret",
+			Namespace: operatorNS,
+		},
+	}
+	newSecret := oldSecret.DeepCopy()
+
+	assert.False(t, pred.Update(event.UpdateEvent{ObjectOld: oldSecret, ObjectNew: newSecret}))
+}
+
+func TestImagePullSecretPredicate_AcceptsLabelTrueToFalse(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, nil, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	pred := r.imagePullSecretFilterPredicate()
+
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "true",
+			},
+		},
+	}
+	newSecret := oldSecret.DeepCopy()
+	newSecret.Labels[common.ArgoCDImagePullSecretPropagateLabel] = "false"
+
+	assert.True(t, pred.Update(event.UpdateEvent{ObjectOld: oldSecret, ObjectNew: newSecret}),
+		"must accept true→false transition for cleanup")
+}
+
+func TestImagePullSecretPredicate_AcceptsLabelFalseToTrue(t *testing.T) {
+	operatorNS := "operator-ns"
+	setOperatorNamespace(t, operatorNS)
+
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, nil, nil, nil)
+	r := makeTestReconciler(cl, sch, nil)
+
+	pred := r.imagePullSecretFilterPredicate()
+
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pull-secret",
+			Namespace: operatorNS,
+			Labels: map[string]string{
+				common.ArgoCDImagePullSecretPropagateLabel: "false",
+			},
+		},
+	}
+	newSecret := oldSecret.DeepCopy()
+	newSecret.Labels[common.ArgoCDImagePullSecretPropagateLabel] = "true"
+
+	assert.True(t, pred.Update(event.UpdateEvent{ObjectOld: oldSecret, ObjectNew: newSecret}),
+		"must accept false→true transition for propagation")
 }

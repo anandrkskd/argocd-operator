@@ -140,7 +140,10 @@ func (r *ReconcileArgoCD) reconcileServiceAccount(name string, cr *argoproj.Argo
 			return sa, r.Delete(context.TODO(), sa)
 		}
 
-		desired := r.getImagePullSecretRefs(cr)
+		desired, err := r.getImagePullSecretRefs(cr)
+		if err != nil {
+			return sa, err
+		}
 		if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
 			sa.ImagePullSecrets = desired
 			argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
@@ -149,13 +152,17 @@ func (r *ReconcileArgoCD) reconcileServiceAccount(name string, cr *argoproj.Argo
 		return sa, nil
 	}
 
-	sa.ImagePullSecrets = r.getImagePullSecretRefs(cr)
+	refs, err := r.getImagePullSecretRefs(cr)
+	if err != nil {
+		return nil, err
+	}
+	sa.ImagePullSecrets = refs
 	if err := controllerutil.SetControllerReference(cr, sa, r.Scheme); err != nil {
 		return nil, err
 	}
 
 	argoutil.LogResourceCreation(log, sa)
-	err := r.Create(context.TODO(), sa)
+	err = r.Create(context.TODO(), sa)
 	if err != nil {
 		return nil, err
 	}

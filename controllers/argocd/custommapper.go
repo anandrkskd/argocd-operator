@@ -306,16 +306,10 @@ func (r *ReconcileArgoCD) nmMapper(ctx context.Context, o client.Object) []recon
 	return result
 }
 
-// imagePullSecretMapper maps a watch event on a Secret labeled for image pull secret propagation
-// back to ALL ArgoCD instances in the cluster. This is needed because propagation-labeled secrets
-// live in the operator namespace, not in ArgoCD instance namespaces — without this watch, creating
-// or updating a labeled secret would not trigger reconciliation until something else (e.g. a CR
-// annotation change) causes it.
-//
-// The watch uses a label selector (label="true"), so only matching secrets reach this mapper.
-// When the label value changes from "true" to "false", the informer treats it as a delete event
-// and delivers the old object — so we must enqueue unconditionally here, not re-check the label
-// value, to ensure reconcileImagePullSecrets runs and cleans up stale copies.
+// imagePullSecretMapper maps a watch event on a propagation-labeled Secret to ALL ArgoCD instances.
+// The watch's label selector and imagePullSecretFilterPredicate handle namespace and label filtering;
+// this mapper enqueues unconditionally so that label-removal events (true→false) still trigger
+// reconcileImagePullSecrets for stale-copy cleanup.
 func (r *ReconcileArgoCD) imagePullSecretMapper(ctx context.Context, o client.Object) []reconcile.Request {
 	var result []reconcile.Request
 

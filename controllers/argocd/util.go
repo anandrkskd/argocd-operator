@@ -888,14 +888,17 @@ func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResou
 		},
 	}}, handler.EnqueueRequestsFromMapFunc(clusterSecretResourceMapper))
 
-	// Triggers reconcile for all ArgoCD instances when a propagation-labeled secret is created, updated, or evicted from the filtered cache.
-	// skips for openshift clusters, as openshift already have access to registry.redhat.io
+	// Watch propagation-labeled secrets in the operator namespace. Accepts creates/deletes
+	// (informer label selector already filters to label="true") and updates where either the
+	// old or new object carries the label (catches true→false transitions for cleanup).
+	// Skipped on OpenShift — clusters already have access to registry.redhat.io.
 	if !IsOpenShiftCluster() {
 		bldr.Watches(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				common.ArgoCDImagePullSecretPropagateLabel: "true",
 			},
-		}}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper))
+		}}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper),
+			builder.WithPredicates(r.imagePullSecretFilterPredicate()))
 	}
 
 	// Inspect cluster to verify availability of extra features
@@ -1025,6 +1028,45 @@ func (r *ReconcileArgoCD) namespaceFilterPredicate() predicate.Predicate {
 			// is created in the future and contains an Argo CD instance, it will be tracked appropriately
 			delete(DeprecationEventEmissionTracker, e.Object.GetName())
 			return true
+		},
+	}
+}
+
+func (r *ReconcileArgoCD) imagePullSecretFilterPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			operatorNS, err := argoutil.GetOperatorNamespace()
+			if err != nil {
+				return false
+			}
+			return e.Object.GetNamespace() == operatorNS
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			operatorNS, err := argoutil.GetOperatorNamespace()
+			if err != nil {
+				return false
+			}
+			if e.ObjectNew.GetNamespace() != operatorNS {
+				return false
+			}
+			oldLabels := e.ObjectOld.GetLabels()
+			newLabels := e.ObjectNew.GetLabels()
+			return oldLabels[common.ArgoCDImagePullSecretPropagateLabel] == "true" ||
+				newLabels[common.ArgoCDImagePullSecretPropagateLabel] == "true"
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			operatorNS, err := argoutil.GetOperatorNamespace()
+			if err != nil {
+				return false
+			}
+			return e.Object.GetNamespace() == operatorNS
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			operatorNS, err := argoutil.GetOperatorNamespace()
+			if err != nil {
+				return false
+			}
+			return e.Object.GetNamespace() == operatorNS
 		},
 	}
 }
@@ -1654,7 +1696,11 @@ func (r *ReconcileArgoCD) reconcileArgoCDAgent(cr *argoproj.ArgoCD) error {
 	var err error
 
 	log.Info("reconciling ArgoCD Agent's Principal service account")
-	if sa, err = argocdagent.ReconcilePrincipalServiceAccount(r.Client, compName, cr, r.Scheme, r.getImagePullSecretRefs(cr)); err != nil {
+	pullSecretRefs, err := r.getImagePullSecretRefs(cr)
+	if err != nil {
+		return err
+	}
+	if sa, err = argocdagent.ReconcilePrincipalServiceAccount(r.Client, compName, cr, r.Scheme, pullSecretRefs); err != nil {
 		return err
 	}
 
@@ -1730,7 +1776,11 @@ func (r *ReconcileArgoCD) reconcileArgoCDAgent(cr *argoproj.ArgoCD) error {
 
 	log.Info("reconciling ArgoCD Agent's Agent service account")
 	var agentSa *corev1.ServiceAccount
-	if agentSa, err = agent.ReconcileAgentServiceAccount(r.Client, agentCompName, cr, r.Scheme, r.getImagePullSecretRefs(cr)); err != nil {
+	agentPullSecretRefs, err := r.getImagePullSecretRefs(cr)
+	if err != nil {
+		return err
+	}
+	if agentSa, err = agent.ReconcileAgentServiceAccount(r.Client, agentCompName, cr, r.Scheme, agentPullSecretRefs); err != nil {
 		return err
 	}
 
