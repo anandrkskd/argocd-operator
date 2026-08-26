@@ -888,23 +888,18 @@ func (r *ReconcileArgoCD) setResourceWatches(bldr *builder.Builder, clusterResou
 		},
 	}}, handler.EnqueueRequestsFromMapFunc(clusterSecretResourceMapper))
 
+	// Inspect cluster to verify availability of extra features
+	// This sets the flags that are used in subsequent checks
+	if err := InspectCluster(); err != nil {
+		log.Info("unable to inspect cluster")
+	}
+
 	// Watch propagation-labeled secrets in the operator namespace. Accepts creates/deletes
 	// (informer label selector already filters to label="true") and updates where either the
 	// old or new object carries the label (catches true→false transitions for cleanup).
 	// Skipped on OpenShift — clusters already have access to registry.redhat.io.
 	if !IsOpenShiftCluster() {
-		bldr.Watches(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				common.ArgoCDImagePullSecretPropagateLabel: "true",
-			},
-		}}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper),
-			builder.WithPredicates(r.imagePullSecretFilterPredicate()))
-	}
-
-	// Inspect cluster to verify availability of extra features
-	// This sets the flags that are used in subsequent checks
-	if err := InspectCluster(); err != nil {
-		log.Info("unable to inspect cluster")
+		bldr.Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(imagePullSecretMapper), builder.WithPredicates(r.imagePullSecretFilterPredicate()))
 	}
 
 	if argoutil.IsRouteAPIAvailable() {
