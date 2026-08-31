@@ -942,7 +942,7 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 	operatorNS, err := argoutil.GetOperatorNamespace()
 	if err != nil {
 		log.Info("cannot determine operator namespace, skipping image pull secret propagation", "error", err)
-		return nil
+		return err
 	}
 
 	if operatorNS == cr.Namespace {
@@ -955,7 +955,7 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 		"operatorNamespace", operatorNS, "targetNamespace", cr.Namespace)
 
 	sourceSecrets := &corev1.SecretList{}
-	if err := r.List(ctx, sourceSecrets,
+	if err = r.List(ctx, sourceSecrets,
 		client.InNamespace(operatorNS),
 		client.MatchingLabels{common.ArgoCDImagePullSecretPropagateLabel: "true"}); err != nil {
 		return fmt.Errorf("failed to list image pull secrets in operator namespace: %w", err)
@@ -1060,7 +1060,7 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) ([]corev1.
 	if err != nil {
 		log.V(1).Info("cannot determine operator namespace for image pull secret refs, checking in-namespace only",
 			"error", err)
-		operatorNS = ""
+		return nil, fmt.Errorf("failed to get operator namespace: %w", err)
 	}
 
 	if operatorNS == cr.Namespace || operatorNS == "" {

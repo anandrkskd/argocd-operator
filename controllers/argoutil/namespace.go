@@ -40,9 +40,17 @@ func allowedNamespace(current string, namespaces string) bool {
 	return false
 }
 
-var OperatorNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+const OperatorNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 func GetOperatorNamespace() (string, error) {
+	if _, err := os.Stat(OperatorNamespaceFile); os.IsNotExist(err) {
+		// read from env variable ARGOCD_OPERATOR_NAMESPACE for local run
+		if os.Getenv("ARGOCD_OPERATOR_NAMESPACE") != "" {
+			return os.Getenv("ARGOCD_OPERATOR_NAMESPACE"), nil
+		}
+		return "", fmt.Errorf("operator namespace file does not exist and if running locally set ARGOCD_OPERATOR_NAMESPACE")
+	}
+
 	data, err := os.ReadFile(OperatorNamespaceFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read operator namespace: %w", err)
