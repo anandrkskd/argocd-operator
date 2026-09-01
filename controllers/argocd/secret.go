@@ -1063,7 +1063,7 @@ func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) ([]corev1.
 		return nil, fmt.Errorf("failed to get operator namespace: %w", err)
 	}
 
-	if operatorNS == cr.Namespace || operatorNS == "" {
+	if operatorNS == cr.Namespace {
 		inNS := &corev1.SecretList{}
 		if err := r.List(ctx, inNS,
 			client.InNamespace(cr.Namespace),

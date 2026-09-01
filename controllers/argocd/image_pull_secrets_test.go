@@ -3,8 +3,6 @@ package argocd
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,11 +34,9 @@ func testOwnerRef(cr *argoproj.ArgoCD) metav1.OwnerReference {
 
 func setOperatorNamespace(t *testing.T, ns string) {
 	t.Helper()
-	dir := t.TempDir()
-	f := filepath.Join(dir, "namespace")
-	require.NoError(t, os.WriteFile(f, []byte(ns), 0600))
-	t.Cleanup(func() { argoutil.OperatorNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace" })
-	argoutil.OperatorNamespaceFile = f
+	// The in-cluster namespace file does not exist during unit tests, so
+	// GetOperatorNamespace falls back to ARGOCD_OPERATOR_NAMESPACE.
+	t.Setenv("ARGOCD_OPERATOR_NAMESPACE", ns)
 }
 
 func TestReconcileImagePullSecrets_CopiesFromOperatorNamespace(t *testing.T) {
