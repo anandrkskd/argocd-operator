@@ -128,7 +128,7 @@ build: generate fmt vet ## Build manager binary.
 	go build -ldflags=$(LD_FLAGS) -o bin/manager cmd/main.go
 
 run: manifests generate fmt vet ## Run a controller from your host.
-	REDIS_CONFIG_PATH="build/redis" go run -ldflags=$(LD_FLAGS) ./cmd/main.go
+	REDIS_CONFIG_PATH="build/redis" ARGOCD_OPERATOR_NAMESPACE="argocd" go run -ldflags=$(LD_FLAGS) ./cmd/main.go
 
 docker-build: test ## Build docker image with the manager.
 	$(CONTAINER_RUNTIME) build --build-arg LD_FLAGS=$(LD_FLAGS) -t ${IMG} .
