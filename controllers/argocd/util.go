@@ -2158,8 +2158,13 @@ func (r *ReconcileArgoCD) reconcileGitOpsPromoter(cr *argoproj.ArgoCD) error {
 	var sa *corev1.ServiceAccount
 	var err error
 
+	pullSecretRefs, err := r.getImagePullSecretRefs(cr)
+	if err != nil {
+		return err
+	}
+
 	log.Info("reconciling GitOps Promoter's Controller Manager ServiceAccount")
-	if sa, err = gitopspromoter.ReconcilePromoterServiceAccount(r.Client, controllerCompName, cr, r.Scheme, true); err != nil {
+	if sa, err = gitopspromoter.ReconcilePromoterServiceAccount(r.Client, controllerCompName, cr, r.Scheme, true, pullSecretRefs); err != nil {
 		return err
 	}
 
@@ -2192,7 +2197,7 @@ func (r *ReconcileArgoCD) reconcileGitOpsPromoter(cr *argoproj.ArgoCD) error {
 
 	log.Info("reconciling GitOps Promoter's API Server ServiceAccount")
 	enabled := cr.Spec.Promoter == nil || cr.Spec.Promoter.APIServer.IsEnabled()
-	if sa, err = gitopspromoter.ReconcilePromoterServiceAccount(r.Client, apiServerCompName, cr, r.Scheme, enabled); err != nil {
+	if sa, err = gitopspromoter.ReconcilePromoterServiceAccount(r.Client, apiServerCompName, cr, r.Scheme, enabled, pullSecretRefs); err != nil {
 		return err
 	}
 
