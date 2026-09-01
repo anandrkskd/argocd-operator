@@ -38,7 +38,7 @@ import (
 // The in-namespace path is what is exercised here: a Secret labeled
 // propagate-image-pull-secret=true in the instance namespace is resolved by
 // getImagePullSecretRefs and set as imagePullSecrets on the component ServiceAccounts.
-var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
+var _ = Describe("GitOps Operator Sequential E2E Tests", func() {
 
 	Context("1-142_validate_image_pull_secret_propagation", func() {
 
@@ -50,7 +50,7 @@ var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
 		)
 
 		BeforeEach(func() {
-			fixture.EnsureParallelCleanSlate()
+			fixture.EnsureSequentialCleanSlate()
 			var err error
 			k8sClient, _, err = fixtureUtils.GetE2ETestKubeClientWithError()
 			Expect(err).NotTo(HaveOccurred())
@@ -58,6 +58,7 @@ var _ = Describe("GitOps Operator Parallel E2E Tests", func() {
 
 			ns, cleanupFunc = fixture.CreateNamespaceWithCleanupFunc("argocd")
 		})
+
 		AfterEach(func() {
 			if cleanupFunc != nil {
 				cleanupFunc()

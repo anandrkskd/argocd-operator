@@ -48,6 +48,12 @@ func GetOperatorNamespace() (string, error) {
 		if os.Getenv("ARGOCD_OPERATOR_NAMESPACE") != "" {
 			return os.Getenv("ARGOCD_OPERATOR_NAMESPACE"), nil
 		}
+		// If you are seeing this error:
+		// - You are likely running the operator outside a cluster (e.g. within development/test environment via Makefile)
+		// - You likely need to set `ARGOCD_OPERATOR_NAMESPACE` env var before starting operator (or running unit test). You could also temporarily hardcode it if that's easier for your use case.
+		// - In most cases, this should already be handled by Makefile.
+		// - See Makefile for an example of how this looks.
+		// - You should never see this error in production.
 		return "", fmt.Errorf("operator namespace file does not exist and if running locally set ARGOCD_OPERATOR_NAMESPACE")
 	}
 
