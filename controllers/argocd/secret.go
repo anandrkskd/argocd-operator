@@ -1054,7 +1054,9 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 
 func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) ([]corev1.LocalObjectReference, error) {
 	ctx := context.TODO()
-	var refs []corev1.LocalObjectReference
+	// Use a non-nil empty slice so callers can distinguish "no secrets to set"
+	// (empty slice) from "don't manage this field" (nil, used on OpenShift).
+	refs := make([]corev1.LocalObjectReference, 0)
 
 	operatorNS, err := argoutil.GetOperatorNamespace()
 	if err != nil {

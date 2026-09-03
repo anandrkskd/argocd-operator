@@ -59,7 +59,9 @@ func ReconcileAgentServiceAccount(client client.Client, compName string, cr *arg
 			return sa, nil
 		}
 
-		if !reflect.DeepEqual(sa.ImagePullSecrets, imagePullSecrets) {
+		// nil imagePullSecrets means the caller chose not to manage this field
+		// (e.g. on OpenShift where the platform injects dockercfg secrets).
+		if imagePullSecrets != nil && !reflect.DeepEqual(sa.ImagePullSecrets, imagePullSecrets) {
 			sa.ImagePullSecrets = imagePullSecrets
 			argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
 			if err := client.Update(context.TODO(), sa); err != nil {
@@ -74,7 +76,9 @@ func ReconcileAgentServiceAccount(client client.Client, compName string, cr *arg
 		return sa, nil
 	}
 
-	sa.ImagePullSecrets = imagePullSecrets
+	if imagePullSecrets != nil {
+		sa.ImagePullSecrets = imagePullSecrets
+	}
 	if err := controllerutil.SetControllerReference(cr, sa, scheme); err != nil {
 		return nil, fmt.Errorf("failed to set ArgoCD CR %s as owner for service account %s: %w", cr.Name, sa.Name, err)
 	}
