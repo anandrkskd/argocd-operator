@@ -241,6 +241,7 @@ func (r *ReconcileArgoCD) reconcileNotificationsServiceAccount(cr *argoproj.Argo
 		if err != nil {
 			return nil, err
 		}
+		return sa, nil
 	}
 
 	// SA exists but shouldn't, so it should be deleted

@@ -529,6 +529,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetServiceAccount(cr *argoproj.Arg
 		if err := r.Create(context.TODO(), sa); err != nil {
 			return sa, err
 		}
+		return sa, nil
 	}
 
 	// On OpenShift the platform injects dockercfg secrets into SAs;

@@ -338,6 +338,7 @@ func (r *ReconcileArgoCD) reconcileImageUpdaterServiceAccount(cr *argoproj.ArgoC
 		if err != nil {
 			return nil, err
 		}
+		return sa, nil
 	}
 
 	// SA exists but shouldn't, so it should be deleted
