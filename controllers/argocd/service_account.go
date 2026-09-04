@@ -147,7 +147,11 @@ func (r *ReconcileArgoCD) reconcileServiceAccount(name string, cr *argoproj.Argo
 			if err != nil {
 				return sa, err
 			}
-			if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+			existing := sa.ImagePullSecrets
+			if existing == nil {
+				existing = []corev1.LocalObjectReference{}
+			}
+			if !reflect.DeepEqual(existing, desired) {
 				sa.ImagePullSecrets = desired
 				argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
 				return sa, r.Update(context.TODO(), sa)

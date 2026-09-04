@@ -69,7 +69,11 @@ func ReconcilePromoterServiceAccount(client client.Client, compName string, cr *
 		}
 		// nil imagePullSecrets means the caller chose not to manage this field
 		// (e.g. on OpenShift where the platform injects dockercfg secrets).
-		if imagePullSecrets != nil && !reflect.DeepEqual(sa.ImagePullSecrets, imagePullSecrets) {
+		existing := sa.ImagePullSecrets
+		if existing == nil {
+			existing = []corev1.LocalObjectReference{}
+		}
+		if imagePullSecrets != nil && !reflect.DeepEqual(existing, imagePullSecrets) {
 			sa.ImagePullSecrets = imagePullSecrets
 			argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
 			if err := client.Update(context.Background(), sa); err != nil {

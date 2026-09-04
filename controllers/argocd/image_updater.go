@@ -353,7 +353,11 @@ func (r *ReconcileArgoCD) reconcileImageUpdaterServiceAccount(cr *argoproj.ArgoC
 		if err != nil {
 			return nil, err
 		}
-		if !reflect.DeepEqual(sa.ImagePullSecrets, desired) {
+		existing := sa.ImagePullSecrets
+		if existing == nil {
+			existing = []corev1.LocalObjectReference{}
+		}
+		if !reflect.DeepEqual(existing, desired) {
 			sa.ImagePullSecrets = desired
 			argoutil.LogResourceUpdate(log, sa, "imagePullSecrets changed")
 			if err := r.Update(context.TODO(), sa); err != nil {
