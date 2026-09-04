@@ -952,15 +952,15 @@ func TestImagePullSecretPredicate_AcceptsLabelFalseToTrue(t *testing.T) {
 
 // --- OpenShift guards: SA ImagePullSecrets must not be touched ---
 
-func setOpenShift(t *testing.T, enabled bool) {
+func setOpenShift(t *testing.T) {
 	t.Helper()
 	original := versionAPIFound
-	versionAPIFound = enabled
+	versionAPIFound = true
 	t.Cleanup(func() { versionAPIFound = original })
 }
 
 func TestReconcileServiceAccount_OpenShift_DoesNotSetImagePullSecrets(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
@@ -994,7 +994,7 @@ func TestReconcileServiceAccount_OpenShift_DoesNotSetImagePullSecrets(t *testing
 }
 
 func TestReconcileServiceAccount_OpenShift_DoesNotOverwriteExistingSecrets(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
@@ -1037,7 +1037,7 @@ func TestReconcileServiceAccount_OpenShift_DoesNotOverwriteExistingSecrets(t *te
 }
 
 func TestReconcileImagePullSecrets_OpenShift_SkipsReconciliation(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
@@ -1074,7 +1074,7 @@ func TestReconcileImagePullSecrets_OpenShift_SkipsReconciliation(t *testing.T) {
 }
 
 func TestReconcileApplicationSetServiceAccount_OpenShift_DoesNotSetImagePullSecrets(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
@@ -1110,7 +1110,7 @@ func TestReconcileApplicationSetServiceAccount_OpenShift_DoesNotSetImagePullSecr
 }
 
 func TestReconcileImageUpdaterServiceAccount_OpenShift_DoesNotSetImagePullSecrets(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
@@ -1146,7 +1146,7 @@ func TestReconcileImageUpdaterServiceAccount_OpenShift_DoesNotSetImagePullSecret
 }
 
 func TestReconcileApplicationSetServiceAccount_OpenShift_DoesNotOverwriteExistingSecrets(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
@@ -1183,7 +1183,7 @@ func TestReconcileApplicationSetServiceAccount_OpenShift_DoesNotOverwriteExistin
 }
 
 func TestReconcileImageUpdaterServiceAccount_OpenShift_DoesNotOverwriteExistingSecrets(t *testing.T) {
-	setOpenShift(t, true)
+	setOpenShift(t)
 	operatorNS := "operator-ns"
 	setOperatorNamespace(t, operatorNS)
 
