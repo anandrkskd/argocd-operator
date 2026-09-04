@@ -937,6 +937,12 @@ func (r *ReconcileArgoCD) reconcileSecrets(cr *argoproj.ArgoCD) error {
 }
 
 func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
+	// On OpenShift, the platform injects dockercfg secrets into ServiceAccounts;
+	// skip propagation to avoid clobbering them.
+	if IsOpenShiftCluster() {
+		return nil
+	}
+
 	ctx := context.TODO()
 
 	operatorNS, err := argoutil.GetOperatorNamespace()
@@ -1054,8 +1060,6 @@ func (r *ReconcileArgoCD) reconcileImagePullSecrets(cr *argoproj.ArgoCD) error {
 
 func (r *ReconcileArgoCD) getImagePullSecretRefs(cr *argoproj.ArgoCD) ([]corev1.LocalObjectReference, error) {
 	ctx := context.TODO()
-	// Use a non-nil empty slice so callers can distinguish "no secrets to set"
-	// (empty slice) from "don't manage this field" (nil, used on OpenShift).
 	refs := make([]corev1.LocalObjectReference, 0)
 
 	operatorNS, err := argoutil.GetOperatorNamespace()
